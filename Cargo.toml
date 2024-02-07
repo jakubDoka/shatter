@@ -16,7 +16,7 @@ argon2 = { version = "0.5.3", features = ["alloc", "std"] }
 arrayvec = { version = "0.7.4", features = ["serde"] }
 askama = { version = "0.12.1", features = ["with-axum"] }
 askama_axum = "0.4.0"
-axum = { version = "0.7.4", features = ["macros"] }
+axum = { version = "0.7.4", features = ["macros", "multipart"] }
 base64 = "0.21.7"
 bson = { version = "2.9.0", features = ["chrono"] }
 chrono = { version = "0.4.33", features = ["serde"] }
@@ -24,8 +24,9 @@ dashmap = "5.5.3"
 env_logger = "0.11.1"
 futures = "0.3.30"
 getrandom = "0.2.12"
+http-body = "1.0.0"
+http-body-util = "0.1.0"
 log = "0.4.20"
-mini_markdown = "0.3.5"
 mongodb = "2.8.0"
 serde = { version = "1.0.196", features = ["derive"] }
 serde_json = "1.0.113"

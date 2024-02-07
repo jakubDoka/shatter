@@ -91,7 +91,7 @@ impl User {
     fn hash_password(password: &str, username: Username) -> anyhow::Result<String> {
         let mut userame_bytes = [0xffu8; 32];
         userame_bytes[..username.len().min(32)].copy_from_slice(username.as_bytes());
-        let value = base64::engine::general_purpose::STANDARD_NO_PAD.encode(userame_bytes);
+        let value = base64::engine::general_purpose::STANDARD.encode(userame_bytes);
         let salt = Salt::from_b64(&value)?;
 
         Ok(argon2::Argon2::default()
@@ -232,18 +232,18 @@ impl Message {
 
     pub async fn get_before(
         db: &Db,
-        chat: &str,
+        chat: Chatname,
         before: chrono::DateTime<chrono::Utc>,
     ) -> anyhow::Result<Vec<Self>> {
         let before = mongodb::bson::DateTime::from_millis(before.timestamp_millis());
         Self::collection(db)
             .find(
                 doc! {
-                    "chat": chat,
-                    "_id": { "$lt": before },
+                    "chat": chat.as_str(),
+                    "timestamp": { "$lt": before },
                 },
                 FindOptions::builder()
-                    .sort(doc! { "_id": -1 })
+                    .sort(doc! { "_id": 1 })
                     .limit(30)
                     .build(),
             )

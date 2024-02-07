@@ -17,7 +17,7 @@ pub fn hash_password(password: &str, salt: &str) -> String {
         .hash_password_into(password.as_bytes(), &salt_bytes, &mut to_hash)
         .expect("us to not fuck up");
     let hash = crypto::hash::from_slice(&to_hash);
-    base64::engine::general_purpose::STANDARD_NO_PAD.encode(hash)
+    base64::engine::general_purpose::STANDARD.encode(hash)
 }
 
 #[wasm_bindgen]
@@ -177,7 +177,7 @@ impl SecretKey {
     }
 
     pub fn from_base64(base64: &str) -> Result<SecretKey, JsValue> {
-        let bytes = base64::engine::general_purpose::STANDARD_NO_PAD.decode(base64.as_bytes());
+        let bytes = base64::engine::general_purpose::STANDARD.decode(base64.as_bytes());
         let bytes = bytes.map_err(err_as_jsvalue)?;
         let inner = crypto::SharedSecret::try_from(bytes)
             .ok()
@@ -186,7 +186,7 @@ impl SecretKey {
     }
 
     pub fn as_base64(&self) -> String {
-        base64::engine::general_purpose::STANDARD_NO_PAD.encode(self.inner)
+        base64::engine::general_purpose::STANDARD.encode(self.inner)
     }
 }
 
@@ -291,11 +291,11 @@ impl EncPublicKey {
 
 fn as_base64<T: TransmutationCircle>(bytes: &T) -> String {
     let bytes = bytes.as_bytes();
-    base64::engine::general_purpose::STANDARD_NO_PAD.encode(bytes)
+    base64::engine::general_purpose::STANDARD.encode(bytes)
 }
 
 fn from_base64<T: TransmutationCircle + Clone>(base64: &str) -> Result<T, JsValue> {
-    let bytes = base64::engine::general_purpose::STANDARD_NO_PAD.decode(base64.as_bytes());
+    let bytes = base64::engine::general_purpose::STANDARD.decode(base64.as_bytes());
     let bytes = bytes.map_err(err_as_jsvalue)?;
     let inner = T::try_from_slice(&bytes).ok_or("Invalid size")?;
     Ok(inner.clone())

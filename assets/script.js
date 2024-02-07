@@ -3,13 +3,13 @@ import __wbg_init, { SecretKey, UserSecrets, Vault, hash_password } from './ft-c
 /** @type {UserSecrets} */
 let secrets = undefined;
 
-/** @type {Vault} */
-let vault = undefined;
 
 await __wbg_init();
+/** @type {Vault} */
+const vault = await load_vault();
+
 init_page_selects();
-localize_stamps(document.body);
-decrypt_messages(document.body);
+postprocess_html(document.body);
 
 /**
  * @param {HTMLDivElement} elem
@@ -19,12 +19,6 @@ window.select_page = function(elem) {
   for (const page of pages) page.classList.remove('active-page');
   elem.classList.add('active-page');
 };
-
-function init_page_selects() {
-  const pages = document.querySelectorAll('.page-select');
-  for (const page of pages) if (location.pathname.indexOf(page.innerHTML.trim()) !== -1)
-    page.classList.add('active-page');
-}
 
 /** 
   * @param {HTMLFormElement} form
@@ -61,28 +55,95 @@ window.logout = function() {
 /**
  * @param {string} name
  */
-function deleteCookie(name) {
-  document.cookie = name + '=; expires=Thu, 01 Jan 1970 00:00:01 GMT; path=/';
+window.ensure_chat_key = async function(name) {
+  if (!vault) return window.logout();
+  if (vault.get_chat_key(name)) return;
+  vault.save_chat_key(name, new SecretKey())
+  await save_vault();
+};
+
+async function save_vault() {
+  const username = localStorage.getItem('username');
+  if (!username) return window.logout();
+
+  const bytes = vault.to_bytes();
+  console.log(bytes);
+  const secrets = get_secrets();
+  const encrypted_bytes = secrets.master_secret.encrypt(bytes);
+  const blob = new Blob([encrypted_bytes], { type: 'application/octet-stream' });
+
+  await fetch(`/vaults`, { method: 'POST', body: blob })
+    .catch(console.log);
+  console.log('vault saved');
 }
 
 /**
-  * @param {HTMLInputElement} password
-  * @returns {string}
-  */
-function validate_password(password) {
-  if (!/[A-Z]/.test(password.value)) return 'missing uppercase letter';
-  if (!/[a-z]/.test(password.value)) return 'missing lowercase letter';
-  if (!/[0-9]/.test(password.value)) return 'missing number';
-  return '';
+ * @param {HTMLElement} elem
+ */
+function postprocess_html(elem) {
+  localize_stamps(elem);
+  decrypt_messages(elem);
+  make_textareas_auto_grow(elem);
+  handle_focus(elem);
+}
+
+function init_page_selects() {
+  const pages = document.querySelectorAll('.page-select');
+  for (const page of pages) if (location.pathname.indexOf(page.innerHTML.trim()) !== -1)
+    page.classList.add('active-page');
 }
 
 /**
-  * @param {HTMLInputElement} elem
-  * @param {string} message
-  */
-function report(elem, message) {
-  elem.setCustomValidity(message);
-  elem.reportValidity();
+ * @param {HTMLElement} elem
+ */
+function localize_stamps(elem) {
+  const stamps = elem.querySelectorAll('.stamp');
+
+  for (const e of stamps) try {
+    e.innerHTML = new Date(e.innerHTML).toLocaleString();
+    e.classList.remove('stamp');
+  } catch (e) {
+    console.log("broken data: ", e);
+    e.innerHTML = 'Error parsing date!';
+  }
+}
+
+/**
+ * @param {HTMLElement} elem
+ */
+function decrypt_messages(elem) {
+  if (!vault) return window.logout();
+
+  const encrypted = elem.querySelectorAll(`.encrypted`);
+  for (const e of encrypted) try {
+    const chat_name = e.getAttribute('chat-name');
+    if (!chat_name) throw new Error('No chat name');
+
+    const key = vault.get_chat_key(chat_name);
+    if (!key) throw new Error('No key for chat');
+
+    const raw_bytes = Uint8Array.from(atob(e.innerHTML), c => c.charCodeAt(0));
+    const decrypted_bytes = key.decrypt(raw_bytes);
+    e.innerHTML = new TextDecoder().decode(decrypted_bytes);
+  } catch (err) {
+    console.error(err);
+    e.innerHTML = 'Error decrypting message!';
+  }
+
+  for (const e of encrypted) e.classList.remove('encrypted');
+}
+
+/**
+ * @param {HTMLElement} elem
+ */
+function make_textareas_auto_grow(elem) {
+  const textareas = elem.querySelectorAll('textarea');
+  for (const textarea of textareas) {
+    textarea.addEventListener('input', function() {
+      this.style.height = 'auto';
+      this.style.height = this.scrollHeight + 'px';
+    });
+  }
 }
 
 /**
@@ -92,38 +153,6 @@ function handle_focus(elem) {
   elem.querySelector('.focused')?.focus();
 }
 
-/**
- * @param {HTMLElement} elem
- */
-function localize_stamps(elem) {
-  for (const e of elem.getElementsByClassName('stamp')) try {
-    e.innerHTML = new Date(e.innerHTML).toLocaleString();
-  } catch (e) {
-    console.log("broken data: ", e);
-  }
-}
-
-/**
- * @param {HTMLElement} elem
- */
-async function decrypt_messages(elem) {
-  const the_class = 'encrypted'
-
-  const vault = await get_vault();
-  const encrypted = elem.getElementsByClassName(the_class);
-  for (const e of encrypted) try {
-    const chat_name = e.getAttribute('chat-name');
-    if (!chat_name) throw new Error('No chat name');
-    const raw_bytes = Uint8Array.from(atob(e.innerHTML), c => c.charCodeAt(0));
-    const key = vault.get_chat_key(chat_name);
-    if (!key) throw new Error('No key for chat');
-    const decrypted_bytes = key.decrypt(raw_bytes);
-    e.innerHTML = new TextDecoder().decode(decrypted_bytes);
-  } catch (err) {
-    console.error(err);
-    e.innerHTML = 'Error decrypting message!';
-  }
-}
 
 document.body.addEventListener('htmx:responseError', function(event) {
   if (event.detail.xhr.status === 401) window.logout();
@@ -135,9 +164,7 @@ document.body.addEventListener('htmx:configRequest', function(event) {
 });
 
 document.body.addEventListener('htmx:load', function(event) {
-    localize_stamps(event.detail.elt);
-    decrypt_messages(event.detail.elt);
-    handle_focus(event.detail.elt);
+  postprocess_html(event.detail.elt);
 });
 
 /**
@@ -166,13 +193,12 @@ function get_secrets() {
  * @returns {Promise<Vault>}
  *
  */
-async function get_vault() {
-  if (vault) return vault;
-
+async function load_vault() {
   const username = localStorage.getItem('username');
-  if (!username) return window.logout();
+  if (!username) return;
+
   const secrets = get_secrets();
-  const vault_bytes = await fetch(`/files/${username}/vault`)
+  const vault_bytes = await fetch(`/vaults`)
     .then(r => r.arrayBuffer())
     .catch(e => {
       console.error("fetching vault failed: ", e);
@@ -185,7 +211,7 @@ async function get_vault() {
     decrypted_vault = new Uint8Array();
   }
 
-  return vault = new Vault(decrypted_vault);
+  return new Vault(decrypted_vault);
 }
 
 const preprocess = {
@@ -193,6 +219,7 @@ const preprocess = {
     const params = event.detail.parameters;
     localStorage.setItem('username', params.username);
     // so that password is hard to remember and/or unreadable in case its revealed in the tools
+    // on accident
     localStorage.setItem('password', btoa(params.password));
     params.password = hash_password(params.password, params.username);
   },
@@ -201,4 +228,43 @@ const preprocess = {
     params.password = hash_password(params.password, params.username);
     params.confirm_password = params.password;
   },
+  send_message: function(event) {
+    if (!vault) return window.logout();
+
+    const params = event.detail.parameters;
+
+    const key = vault.get_chat_key(params.name);
+    if (!key) return console.error('No key for chat name:', params.name);
+
+    const bytes = key.encrypt(new TextEncoder().encode(params.content));
+    params.content = btoa(String.fromCharCode(...bytes));
+  },
 };
+
+/**
+ * @param {string} name
+ */
+function deleteCookie(name) {
+  document.cookie = name + '=; expires=Thu, 01 Jan 1970 00:00:01 GMT; path=/';
+}
+
+/**
+  * @param {HTMLInputElement} password
+  * @returns {string}
+  */
+function validate_password(password) {
+  if (!/[A-Z]/.test(password.value)) return 'missing uppercase letter';
+  if (!/[a-z]/.test(password.value)) return 'missing lowercase letter';
+  if (!/[0-9]/.test(password.value)) return 'missing number';
+  return '';
+}
+
+/**
+  * @param {HTMLInputElement} elem
+  * @param {string} message
+  */
+function report(elem, message) {
+  elem.setCustomValidity(message);
+  elem.reportValidity();
+}
+

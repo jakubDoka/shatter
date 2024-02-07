@@ -2,7 +2,6 @@ use core::fmt;
 use std::convert::Infallible;
 use std::fmt::Display;
 use std::sync::Arc;
-use std::time::Duration;
 
 use anyhow::Result;
 use askama::Template;
@@ -28,10 +27,10 @@ pub async fn send_message(
     State(state): State<crate::State>,
     session: Session,
     axum::Form(mut form): axum::Form<SendMessageForm>,
-) -> Result<(), StatusCode> {
+) -> Result<SendMessageForm, StatusCode> {
     if form.content.0.len() > 1024 + 30 {
         form.errors.push("message too long");
-        return Err(StatusCode::BAD_REQUEST);
+        return Ok(form);
     }
 
     let message = model::Message::new(room, session.username, form.content.0);
@@ -40,7 +39,11 @@ pub async fn send_message(
         .send(&state.message_pubsub)
         .map_err(super::internal)?;
 
-    Ok(())
+    Ok(SendMessageForm {
+        name: room,
+        content: Base64(Arc::from([])),
+        errors: vec![],
+    })
 }
 
 pub async fn new_messages_sse(
@@ -165,7 +168,7 @@ pub async fn get_messages(
     Query(params): Query<GetMessageParams>,
     session: Session,
 ) -> Result<MessageBlock, StatusCode> {
-    MessageBlock::new(&state.db, room, session.username, params.before.into())
+    MessageBlock::new(&state.db, room, session.username, params.before)
         .await
         .map_err(super::internal)?
         .ok_or(StatusCode::NOT_FOUND)
@@ -174,6 +177,7 @@ pub async fn get_messages(
 #[derive(serde::Deserialize, askama::Template)]
 #[template(path = "chat.room.send.html")]
 pub struct SendMessageForm {
+    name: Chatname,
     content: Base64,
     #[serde(skip)]
     errors: Vec<&'static str>,
@@ -181,7 +185,7 @@ pub struct SendMessageForm {
 
 #[derive(serde::Deserialize)]
 pub struct GetMessageParams {
-    before: chrono::DateTime<chrono::Utc>,
+    before: Option<chrono::DateTime<chrono::Utc>>,
 }
 
 #[derive(askama::Template)]
@@ -196,6 +200,7 @@ impl Room {
         let Some(block) = MessageBlock::new(db, room, username, None).await? else {
             return Ok(None);
         };
+
         Ok(Some(Self {
             name: room,
             init_block: block,
@@ -212,40 +217,25 @@ pub struct MessageBlock {
 
 impl MessageBlock {
     pub async fn new(
-        _db: &Db,
+        db: &Db,
         room: Chatname,
         username: Username,
         before: Option<chrono::DateTime<chrono::Utc>>,
     ) -> anyhow::Result<Option<Self>> {
-        if let Some(before) = before {
-            return Ok(Some(Self {
-                messages: vec![],
-                last_message_stamp: before,
-            }));
+        let before = before.unwrap_or_else(chrono::Utc::now);
+        let mut messages = model::Message::get_before(db, room, before)
+            .await?
+            .into_iter()
+            .map(Message::from)
+            .collect::<Vec<_>>();
+
+        for message in &mut messages {
+            message.is_me = message.by == username;
         }
 
-        let messages = vec![
-            Message {
-                id: Default::default(),
-                sent: chrono::Utc::now().round_subsecs(5000),
-                chat: room,
-                by: "foo".try_into().unwrap(),
-                is_me: false,
-                content: Base64((*b"Hello, world!").into()),
-            },
-            Message {
-                id: Default::default(),
-                sent: chrono::Utc::now().round_subsecs(3000),
-                chat: room,
-                by: username.to_owned(),
-                is_me: true,
-                content: Base64((*b"Hi!").into()),
-            },
-        ];
-
         Ok(Some(Self {
+            last_message_stamp: messages.first().map(|m| m.sent).unwrap_or_else(|| before),
             messages,
-            last_message_stamp: chrono::Utc::now(),
         }))
     }
 }
@@ -295,14 +285,12 @@ pub struct RoomNotFound;
 #[derive(askama::Template)]
 #[template(path = "chat.list.html")]
 pub struct ChatList {
-    create_button: CreateButton,
     chats: Vec<Chatname>,
 }
 
 impl ChatList {
     pub async fn new(db: &Db, username: Username) -> anyhow::Result<Self> {
         Ok(Self {
-            create_button: CreateButton::default(),
             chats: Chat::names_by_user(db, username).await?,
         })
     }
@@ -340,7 +328,7 @@ impl<'de> Deserialize<'de> for Base64 {
         D: Deserializer<'de>,
     {
         let s = String::deserialize(deserializer)?;
-        base64::engine::general_purpose::STANDARD_NO_PAD
+        base64::engine::general_purpose::STANDARD
             .decode(s)
             .map_err(serde::de::Error::custom)
             .map(Into::into)
@@ -353,7 +341,7 @@ impl Serialize for Base64 {
     where
         S: serde::Serializer,
     {
-        base64::engine::general_purpose::STANDARD_NO_PAD
+        base64::engine::general_purpose::STANDARD
             .encode(&self.0)
             .serialize(serializer)
     }
@@ -361,7 +349,7 @@ impl Serialize for Base64 {
 
 impl fmt::Display for Base64 {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        base64::engine::general_purpose::STANDARD_NO_PAD
+        base64::engine::general_purpose::STANDARD
             .encode(&self.0)
             .fmt(f)
     }

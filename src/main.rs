@@ -5,7 +5,7 @@ use std::sync::Arc;
 
 use axum::extract::DefaultBodyLimit;
 use dashmap::DashMap;
-use tokio::sync::broadcast::{Receiver, Sender};
+use tokio::sync::broadcast::Sender;
 use tower_livereload::predicate;
 
 use crate::endpoints::register::Register;
@@ -22,13 +22,12 @@ pub type PubSub = Arc<DashMap<Chatname, PubSubEntry>>;
 
 pub struct PubSubEntry {
     sender: Sender<Message>,
-    receiver: Receiver<Message>,
 }
 
 impl Default for PubSubEntry {
     fn default() -> Self {
-        let (sender, receiver) = tokio::sync::broadcast::channel(20);
-        Self { sender, receiver }
+        let (sender, _) = tokio::sync::broadcast::channel(20);
+        Self { sender }
     }
 }
 
@@ -75,8 +74,10 @@ async fn main() {
         .route("/register", post(endpoints::register::post))
         .route("/register/content", get(def_handler::<register::Form>))
         .nest_service("/assets", ServeDir::new("assets"))
-        .nest_service("/files", ServeDir::new("files"))
-        .route("/upload/vault", post(endpoints::files::set_vault))
+        .route("/vaults", post(endpoints::files::set_vault))
+        .route("/vaults", get(endpoints::files::get_vault))
+        .route("/avatars", post(endpoints::files::set_avatar))
+        .route("/avatars/:username", get(endpoints::files::get_avatar))
         .layer(tower_cookies::CookieManagerLayer::new())
         .layer(DefaultBodyLimit::max(1024 * 1024))
         .with_state(State {

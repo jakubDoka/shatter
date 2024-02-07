@@ -12,4 +12,7 @@
 	.active-page {
 		@apply text-highlight;
 	}
+	.encrypted, .stamp {
+		@apply hidden;
+	}
 }
