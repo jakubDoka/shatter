@@ -1,0 +1,7 @@
+/target
+/node_modules
+**/*.min.js
+**/*.min.css
+/assets/ft-crypto
+Cargo.lock
+package-lock.json

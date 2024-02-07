@@ -1,0 +1,19 @@
+{%- import "utils.html" as utils -%}
+{% extends "page-base.html" %}
+
+{% block style %}
+{{ theme|safe }}
+{% endblock %}
+
+{% block pages %}
+{% call utils::nav_link("chat-list") %}
+{% endblock %}
+
+{% block nav_user %}
+<div class="mb-auto mt-auto font-bold">{{ username }}</div>
+<div class="hover:text-highlight cursor-pointer ml-2 p-1 bg-primary" onclick="logout()">logout</div>
+{% endblock %}
+
+{% block content %}
+{{ content|safe }}
+{% endblock %}

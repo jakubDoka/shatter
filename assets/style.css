@@ -1,0 +1,15 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer components {
+	.button {
+		@apply bg-primary hover:bg-highlight hover:text-primary transition-colors duration-300 cursor-pointer;
+	}
+	.line-input {
+		@apply bg-primary p-1 outline-none focus:bg-highlight focus:text-primary active:bg-highlight active:text-primary hover:bg-highlight hover:text-primary transition-colors duration-300 placeholder:hover:text-primary placeholder:active:text-primary placeholder:focus:text-primary;
+	}
+	.active-page {
+		@apply text-highlight;
+	}
+}

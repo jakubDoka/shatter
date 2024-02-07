@@ -1,0 +1,16 @@
+{%- import "utils.html" as utils -%}
+<div class="bg-secondary p-2 overflow-y-auto w-full max-h-full absolute">
+	{% call utils::chat_list_nav() %}
+
+	{% if chats.is_empty() %}
+	<div id="chat-list-empty" class="text-center text-2xl p-2 mt-2 bg-primary">
+		no chats added yet
+	</div>
+	{% endif %}
+
+	<div class="flex flex-col" id="chat-list">
+		{% for chat in chats %}
+		{% call utils::chat_list_item(chat) %}
+		{% endfor %}
+	</div>
+</div>

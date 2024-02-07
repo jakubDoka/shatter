@@ -1,0 +1,32 @@
+<!doctype html>
+<html class="h-screen overflow-y-hidden">
+
+<head>
+	<meta charset="UTF-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1.0">
+	<link href="/assets/style.min.css" rel="stylesheet">
+	<div id="theme">
+		{% block style %}{% endblock %}
+	</div>
+	<title>Shatter</title>
+</head>
+
+<body class="bg-primary text-font flex flex-col p-2 h-full">
+	<nav class="mb-2 p-2 bg-secondary flex justify-between flex-wrap">
+		<div id="pages" class="flex flex-wrap">
+			{% block pages %}{% endblock %}
+		</div>
+		<div id="user-nav" class="flex mb-auto mt-auto">
+			{% block nav_user %}{% endblock %}
+		</div>
+	</nav>
+	<div id="content" class="h-full relative">
+		{% block content %}{% endblock %}
+	</div>
+
+	<script src="/assets/htmx.min.js" ></script>
+	<script src="/assets/htmx.sse.min.js"></script>
+	<script src="/assets/script.js" type="module"></script>
+</body>
+
+</html>

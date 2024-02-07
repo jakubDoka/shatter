@@ -1,0 +1,17 @@
+[package]
+name = "ft-crypto"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+argon2 = { version = "0.5.3", default-features = false, features = ["alloc"] }
+base64 = "0.21.7"
+crypto = { git = "https://github.com/jakubDoka/orion-network.git" }
+getrandom = { version = "0.2.12", features = ["js"] }
+rand_core = { version = "0.6.4", features = ["getrandom"] }
+wasm-bindgen = "0.2.90"
+
+[lib]
+crate-type = ["cdylib", "rlib"]

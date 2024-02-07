@@ -1,0 +1,15 @@
+{%- import "utils.html" as utils -%}
+{% call utils::chat_list_nav() %}
+
+{% match added_chat %}
+{% when Some with (chat) %}
+<div id="chat-list" hx-swap-oob="afterbegin" hx-select="*">
+	<div class="bg-primary p-1 text-lg text-center button mt-2" hx-replace-url="/chat-room/{{ chat }}/"
+		hx-get="/chat-room/{{ chat }}/content" hx-target="#content" hx-swap="innerHTML"
+		onclick="select_page(this)">
+		{{ chat }}
+	</div>
+</div>
+<div id="chat-list-empty" hx-swap-oob="delete"></div>
+{% when None %}
+{% endmatch %}

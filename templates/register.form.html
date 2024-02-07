@@ -1,0 +1,19 @@
+<form preprocess="register" hx-post="/register" hx-target="this" hx-swap="outerHTML"
+	class="bg-secondary flex flex-col p-2" hx-on:htmx:validation:validate="validate_register(this)">
+	{% if !errors.is_empty() %}
+	<section class="p-2 mb-2 bg-primary flex flex-col">
+		{% for error in errors %}
+		<p class="text-red-500">{{error}}</p>
+		{% endfor %}
+	</section>
+	{% endif %}
+
+	<input type="text" name="username" placeholder="username" maxlength="32" required value="{{username}}"
+		class="line-input mb-2" />
+	<input type="password" name="password" onkeyup="this.setCustomValidity('')" placeholder="password"
+		minlength="16" required class="line-input mb-2" />
+	<input type="password" name="confirm_password" onkeyup="this.setCustomValidity('')"
+		placeholder="confirm password" minlength="16" required class="line-input mb-2" />
+
+	<input type="submit" value="register" class="button" />
+</form>

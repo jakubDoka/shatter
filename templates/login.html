@@ -1,0 +1,15 @@
+{%- import "utils.html" as utils -%}
+{% extends "page-base.html" %}
+
+{% block style %}
+{{ theme|safe }}
+{% endblock %}
+
+{% block pages %}
+{% call utils::nav_link("login") %}
+{% call utils::nav_link("register") %}
+{% endblock %}
+
+{% block content %}
+{{ form|safe }}
+{% endblock %}

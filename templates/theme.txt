@@ -1,0 +1,9 @@
+<style>
+	html {
+		--color-primary: {{ primary_color|css_color }};
+		--color-secondary: {{ secondary_color|css_color }};
+		--color-highlight: {{ highlight_color|css_color }};
+		--color-font: {{ font_color|css_color }};
+		--color-error: {{ error_color|css_color }};
+	}
+</style>
