@@ -1,13 +1,7 @@
-<form id="chat-create-form" hx-post="/chat-list/create" class="flex flex-col" hx-swap="outerHTML" hx-target="this">
-	{% if !errors.is_empty() %}
-	<section class="p-2 mb-2 bg-primary flex flex-col">
-		{% for error in errors %}
-		<p class="text-red-500 text-wrap">{{error}}</p>
-		{% endfor %}
-	</section>
-	{% endif %}
-
-	<div class="flex flex-wrap gap-2">
+{%- import "utils.html" as utils -%}
+<form id="chat-create-form" hx-post="/chat-list/create" hx-swap="outerHTML" hx-target="this">
+	{% call utils::form_errors(errors) %}
+	<div class="inline-form">
 		<input class="bg-primary p-1 flex-1 line-input focused" type="text" name="name" maxlength="32"
 			placeholder="chat name" value="{{ name }}" />
 		<input class="bg-primary p-1 button" type="submit" value="create" />

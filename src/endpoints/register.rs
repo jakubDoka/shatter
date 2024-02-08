@@ -3,6 +3,7 @@ use axum::http::StatusCode;
 
 use crate::model::{self, Username};
 
+use super::chat::Base64;
 use super::login;
 
 pub async fn post(
@@ -13,7 +14,7 @@ pub async fn post(
         form.errors.push("Passwords do not match.");
     }
 
-    if let Err(err) = super::validate_username(&form.username) {
+    if let Err(err) = super::validate_username(form.username) {
         form.errors.push(err);
     }
 
@@ -21,7 +22,8 @@ pub async fn post(
         return Ok(Err(form));
     }
 
-    let user = model::User::new(form.username, &form.password).map_err(super::internal)?;
+    let user = model::User::new(form.username, &form.password, form.public_key.0)
+        .map_err(super::internal)?;
     if !user.create(&state.db).await.map_err(super::internal)? {
         form.errors.push("Username already taken.");
         return Ok(Err(form));
@@ -43,6 +45,7 @@ pub struct Form {
     username: Username,
     password: String,
     confirm_password: String,
+    public_key: Base64<model::PublicKey>,
     #[serde(skip)]
     errors: Vec<&'static str>,
 }

@@ -1,0 +1,5 @@
+<div class="flex flex-col">
+	{% match payload %}
+	{% when MailPayload::ChatInvite with { chat, from, ciphertext } %}
+	{% endmatch %}
+</div>

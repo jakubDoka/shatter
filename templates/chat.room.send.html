@@ -1,14 +1,10 @@
+{%- import "utils.html" as utils -%}
 <form preprocess="send_message" hx-post="./messages" hx-vals='{"name": "{{ name }}"}' hx-swap="outerHTML"
-	hx-target="this" class="flex mt-2">
-	{% if !errors.is_empty() %}
-	<section class="p-2 mb-2 bg-primary flex flex-col">
-		{% for error in errors %}
-		<p class="text-red-500">{{error}}</p>
-		{% endfor %}
-	</section>
-	{% endif %}
-
-	<input type="text" id="message" name="content" class="bg-primary w-full outline-none p-1" required
-		maxlength="1024">
-	<input type="submit" value="send" class="bg-primary ml-2 p-1 button">
+	hx-target="this" class="flex">
+	{% call utils::form_errors(errors) %}
+	<div class="inline-form">
+		<input type="text" id="message" name="content" class="bg-primary flex-1 outline-none p-1" required
+			maxlength="1024">
+		<input type="submit" value="send" class="bg-primary p-1 button">
+	</div>
 </form>

@@ -67,6 +67,20 @@ window.validate_register = function(form) {
   report(confirm, '');
 };
 
+/**
+ * @param {HTMLButtonElement} button
+ */
+window.compute_pk_hash = function(button) { 
+  const secs = get_secrets();
+  if (!secs) return;
+
+  navigator.clipboard.writeText(secs.enc.public_key.hash());
+
+  const prev = button.innerHTML;
+  button.innerHTML = '~~~~copied~~~~';
+  setTimeout(() => button.innerHTML = prev, 1000);
+};
+
 /** 
   * @param {HTMLFormElement} form
   */
@@ -231,6 +245,8 @@ const preprocess = {
     const params = event.detail.parameters;
     params.password = hash_password(params.password, params.username);
     params.confirm_password = params.password;
+    const secrets = new UserSecrets(params.password, params.username);
+    params.public_key = secrets.enc.public_key.as_base64();
   },
   send_message: function(event) {
     if (!vault) return window.logout();
@@ -245,7 +261,11 @@ const preprocess = {
   },
   profile: function(event) {
     try {
+      const secs = get_secrets();
+      if (!secs) throw new Error('No secrets');
+
       const params = event.detail.parameters;
+      params.public_key = secs.enc.public_key.as_base64();
       if (!params.old_password) return;
       
       const username = localStorage.getItem('username');
@@ -259,7 +279,6 @@ const preprocess = {
         params.old_password = hash_password(params.old_password, username);
       }
       params.confirm_password = params.new_password;
-
     } catch (e) {
       console.error('profile preprocess failed:', e);
       event.detail.parameters = {};
@@ -279,18 +298,11 @@ const postprocess = {
     await save_vault();
   },
   profile: async function(_, username) {
-    const old_username = localStorage.getItem('username');
-    if (old_username === username) return;
-
-    secrets = undefined;
-    await save_vault();
+    if (username === localStorage.getItem('username')) return;
 
     localStorage.setItem('username', username);
-    for (const name_div of document.querySelectorAll(`.username-${old_username}`)) {
-      name_div.innerHTML = username;
-      name_div.classList.remove(`username-${old_username}`);
-      name_div.classList.add(`username-${username}`);
-    }
+    secrets = undefined;
+    await save_vault();
   },
 };
 

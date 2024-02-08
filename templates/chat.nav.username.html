@@ -1,0 +1,6 @@
+<div id="nav-username" hx-swap-oob="outerHTML" hx-get="/profile/{{ username }}/content"
+	hx-push-url="/profile/{{ username }}/" hx-target="#content" hx-swap="innerHTML"
+	class="mb-auto mt-auto font-bold hover:text-highlight page-select username-{{ username }}"
+	onclick="select_page(this)">
+	{{ username }}
+</div>

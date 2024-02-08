@@ -10,7 +10,7 @@ use axum::http::StatusCode;
 use axum::response::sse::{Event, KeepAlive};
 use axum::response::Sse;
 use base64::Engine;
-use chrono::SubsecRound;
+
 use futures::Stream;
 use serde::{Deserialize, Deserializer, Serialize};
 
@@ -21,6 +21,10 @@ use super::{Session, Theme};
 pub type FullChatList = Base<ChatList>;
 pub type FullRoom = Base<Room>;
 pub type FullRoomNotFound = Base<RoomNotFound>;
+
+pub async fn nav(Path(room): Path<Chatname>) -> RoomNav {
+    RoomNav { name: room }
+}
 
 pub async fn send_message(
     Path(room): Path<Chatname>,
@@ -175,6 +179,12 @@ pub async fn get_messages(
 }
 
 #[derive(serde::Deserialize, askama::Template)]
+#[template(path = "chat.room.nav.html")]
+pub struct RoomNav {
+    pub name: Chatname,
+}
+
+#[derive(serde::Deserialize, askama::Template)]
 #[template(path = "chat.room.send.html")]
 pub struct SendMessageForm {
     name: Chatname,
@@ -306,7 +316,7 @@ pub struct Base<T: Display> {
     pub content: T,
 }
 
-#[derive(Clone)]
+#[derive(Clone, Default)]
 pub struct Base64<T = Arc<[u8]>>(pub T);
 
 impl<'de, T: TryFrom<Vec<u8>>> Deserialize<'de> for Base64<T>

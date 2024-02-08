@@ -9,7 +9,7 @@ use tokio::sync::broadcast::Sender;
 use tower_livereload::predicate;
 
 use crate::endpoints::register::Register;
-use crate::endpoints::{login, profile, register};
+use crate::endpoints::{login, mail, profile, register};
 
 use self::endpoints::chat::{self, Message};
 use self::endpoints::login::Login;
@@ -67,6 +67,9 @@ async fn main() {
         .route("/chat-room/:name/messages", post(chat::send_message))
         .route("/chat-room/:name/content", get(chat::room_content))
         .route("/chat-room/:name/new-messages", get(chat::new_messages_sse))
+        .route("/chat-room/:name/invite", get(mail::invite))
+        .route("/chat-room/:name/invite", post(mail::send_invite))
+        .route("/chat-room/:name/nav", get(chat::nav))
         .route("/login/", get(def_handler::<Login>))
         .route("/login", post(endpoints::login::post))
         .route("/login/content", get(def_handler::<login::Form>))
@@ -76,6 +79,9 @@ async fn main() {
         .route("/profile/:username/", get(profile::full))
         .route("/profile", post(profile::edit))
         .route("/profile/:username/content", get(profile::content))
+        .route("/main", get(mail::get_mail))
+        .route("/mail/", get(mail::full))
+        .route("/mail/content", get(mail::content))
         .nest_service("/assets", ServeDir::new("assets"))
         .route("/vaults", post(endpoints::files::set_vault))
         .route("/vaults", get(endpoints::files::get_vault))

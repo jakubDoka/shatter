@@ -1,16 +1,11 @@
-<form preprocess="login" hx-post="/login" hx-target="this" hx-swap="outerHTML" class="bg-secondary flex flex-col p-2"
+{%- import "utils.html" as utils -%}
+<form preprocess="login" hx-post="/login" hx-target="this" hx-swap="outerHTML" class="normal-form"
 	hx-on:htmx:validation:validate="validate_login(this)">
-	{% if !errors.is_empty() %}
-	<section class="p-2 mb-2 bg-primary flex flex-col">
-		{% for error in errors %}
-		<p class="text-red-500">{{error}}</p>
-		{% endfor %}
-	</section>
-	{% endif %}
+	{% call utils::form_errors(errors) %}
 
 	<input type="text" name="username" placeholder="username" maxlength="32" required value="{{username}}"
-		class="line-input mb-2" />
+		class="line-input" />
 	<input type="password" name="password" placeholder="password" onkeyup="this.setCustomValidity('')"
-		minlength="16" required class="line-input mb-2" />
+		minlength="16" required class="line-input" />
 	<input type="submit" value="login" class="button" />
 </form>

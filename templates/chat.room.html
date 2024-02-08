@@ -1,9 +1,5 @@
-<div class="bg-secondary p-2 overflow-y-auto w-full h-full absolute flex flex-col">
-	<div class="flex mb-2">
-		<div class="bg-primary text-highlight p-1">{{ name }}</div>
-		<div class="bg-primary p-1 ml-2 button">settings</div>
-		<div class="bg-primary ml-2 w-full"></div>
-	</div>
+<div class="bg-secondary p-2 gap-2 overflow-y-auto w-full h-full absolute flex flex-col">
+	{% include "chat.room.nav.html" %}
 	<div class="h-full relative">
 		<div id="messages" class="bg-primary flex flex-col h-full w-full p-2 absolute overflow-y-auto">
 			{{ init_block|safe }}

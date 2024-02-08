@@ -1,4 +1,5 @@
 use core::fmt;
+use std::fmt::Display;
 use std::sync::Arc;
 
 use anyhow::Context;
@@ -31,8 +32,102 @@ pub async fn connect(url: &str, db: &str) -> anyhow::Result<Db> {
     let db = client.database(db);
     User::setup_collection(&db).await?;
     Message::setup_collection(&db).await?;
+    Mail::setup_collection(&db).await?;
 
     Ok(db)
+}
+
+#[derive(Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum MailPayload {
+    ChatInvite {
+        chat: Chatname,
+        from: Username,
+        ciphertext: Bytes<Ciphertext>,
+    },
+}
+
+#[derive(Serialize, Deserialize, askama::Template)]
+#[template(path = "mail.html")]
+pub struct Mail {
+    #[serde(rename = "_id")]
+    pub id: mongodb::bson::oid::ObjectId,
+    pub to: Username,
+    pub stamp: chrono::DateTime<chrono::Utc>,
+    #[serde(flatten)]
+    pub payload: MailPayload,
+}
+
+impl Mail {
+    pub async fn send(db: &Db, to: Username, payload: MailPayload) -> anyhow::Result<bool> {
+        Self {
+            id: mongodb::bson::oid::ObjectId::new(),
+            to,
+            stamp: chrono::Utc::now(),
+            payload,
+        }
+        .create(db)
+        .await
+    }
+
+    pub async fn create(&self, db: &Db) -> anyhow::Result<bool> {
+        if Self::collection(db)
+            .count_documents(doc! { "to": self.to.as_str() }, None)
+            .await?
+            > 1024
+        {
+            return Ok(false);
+        }
+
+        Self::collection(db)
+            .insert_one(self, None)
+            .await
+            .context("create mail")
+            .map(|_| true)
+    }
+
+    pub async fn get_before(
+        db: &Db,
+        to: Username,
+        before: chrono::DateTime<chrono::Utc>,
+    ) -> anyhow::Result<Vec<Self>> {
+        let before = mongodb::bson::DateTime::from_millis(before.timestamp_millis());
+        Self::collection(db)
+            .find(
+                doc! {
+                    "to": to.as_str(),
+                    "sent": { "$lt": before },
+                },
+                FindOptions::builder()
+                    .limit(30)
+                    .sort(doc! { "_id": -1 })
+                    .build(),
+            )
+            .await
+            .context("find mail")?
+            .try_collect()
+            .await
+            .context("fetch mail")
+    }
+
+    fn collection(db: &Db) -> mongodb::Collection<Mail> {
+        db.collection("mail")
+    }
+
+    async fn setup_collection(db: &Db) -> anyhow::Result<()> {
+        let coll = Self::collection(db);
+
+        coll.create_index(
+            IndexModel::builder()
+                .keys(doc! { "to": 1, "sent": 1 })
+                .build(),
+            None,
+        )
+        .await
+        .context("partition mail by recipient")?;
+
+        Ok(())
+    }
 }
 
 #[derive(Serialize, Deserialize)]
@@ -41,15 +136,17 @@ pub struct User {
     pub username: Username,
     pub password_hash: String,
     #[serde(default)]
-    pub theme: ThemeBytes,
+    pub theme: Bytes<ThemeBytes>,
+    pub public_key: Bytes<PublicKey>,
 }
 
 impl User {
-    pub fn new(username: Username, password: &str) -> anyhow::Result<Self> {
+    pub fn new(username: Username, password: &str, public_key: PublicKey) -> anyhow::Result<Self> {
         Ok(Self {
             username,
             password_hash: Self::hash_password(password, username)?,
-            theme: Theme::default().as_bytes(),
+            theme: Bytes(Theme::default().as_bytes()),
+            public_key: Bytes(public_key),
         })
     }
 
@@ -70,6 +167,13 @@ impl User {
         }
     }
 
+    pub async fn get(db: &Db, username: Username) -> anyhow::Result<Option<Self>> {
+        Self::collection(db)
+            .find_one(doc! { "_id": username.as_str() }, None)
+            .await
+            .context("find user")
+    }
+
     pub async fn update(
         db: &Db,
         from: Username,
@@ -77,9 +181,8 @@ impl User {
         old_password: &str,
         new_password: &str,
         theme: Theme,
+        public_key: PublicKey,
     ) -> anyhow::Result<Result<(), &'static str>> {
-        let theme_bson = mongodb::bson::to_bson(&theme.as_bytes()).unwrap();
-
         if from == to {
             let old_password_hash = Self::hash_password(old_password, from)?;
             let new_password_hash = if new_password.is_empty() {
@@ -87,12 +190,15 @@ impl User {
             } else {
                 Self::hash_password(new_password, to)?
             };
+            let theme_bson = mongodb::bson::to_bson(&Bytes(theme.as_bytes())).unwrap();
+            let pk_bson = mongodb::bson::to_bson(&Bytes(public_key.as_ref())).unwrap();
             Self::collection(db)
                 .update_one(
                     doc! { "_id": from.as_str(), "password_hash": old_password_hash },
                     doc! { "$set": {
                         "theme": theme_bson,
-                        "password_hash": new_password_hash
+                        "password_hash": new_password_hash,
+                        "public_key": pk_bson,
                     } },
                     None,
                 )
@@ -101,15 +207,13 @@ impl User {
             return Ok(Ok(()));
         }
 
-        let Some(mut s) = Self::collection(db)
-            .find_one(doc! { "_id": from.as_str() }, None)
-            .await?
-        else {
+        let Some(mut s) = Self::get(db, from).await? else {
             return Ok(Err("User was deleted in mean time."));
         };
 
         s.username = to;
-        s.theme = theme.as_bytes();
+        s.public_key = Bytes(public_key);
+        s.theme = Bytes(theme.as_bytes());
         if !new_password.is_empty() {
             if !Self::verify_password(old_password, &s.password_hash) {
                 return Ok(Err("Invalid password."));
@@ -385,17 +489,70 @@ fn err_is_duplicate(err: &mongodb::error::Error) -> bool {
     false
 }
 
-#[derive(Clone)]
-pub struct Bytes(pub Arc<[u8]>);
+#[derive(Clone, Copy)]
+pub struct Ciphertext(crypto::Serialized<crypto::enc::ChoosenCiphertext>);
 
-impl<'de> Deserialize<'de> for Bytes {
+impl Default for Ciphertext {
+    fn default() -> Self {
+        Self([0; std::mem::size_of::<crypto::enc::ChoosenCiphertext>()])
+    }
+}
+
+impl TryFrom<Vec<u8>> for Ciphertext {
+    type Error = &'static str;
+
+    fn try_from(v: Vec<u8>) -> Result<Self, Self::Error> {
+        v.try_into().map(Self).map_err(|_| "wrong size")
+    }
+}
+
+impl AsRef<[u8]> for Ciphertext {
+    fn as_ref(&self) -> &[u8] {
+        &self.0
+    }
+}
+
+#[derive(Clone, Copy)]
+pub struct PublicKey(crypto::Serialized<crypto::enc::PublicKey>);
+
+impl Default for PublicKey {
+    fn default() -> Self {
+        Self([0; std::mem::size_of::<crypto::enc::PublicKey>()])
+    }
+}
+
+impl TryFrom<Vec<u8>> for PublicKey {
+    type Error = &'static str;
+
+    fn try_from(v: Vec<u8>) -> Result<Self, Self::Error> {
+        v.try_into().map(Self).map_err(|_| "wrong size")
+    }
+}
+
+impl AsRef<[u8]> for PublicKey {
+    fn as_ref(&self) -> &[u8] {
+        &self.0
+    }
+}
+
+#[derive(Clone, Default)]
+pub struct Bytes<T = Arc<[u8]>>(pub T);
+
+impl<'de, T: TryFrom<Vec<u8>>> Deserialize<'de> for Bytes<T>
+where
+    T::Error: Display,
+{
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
     where
         D: Deserializer<'de>,
     {
-        struct Vis;
-        impl Visitor<'_> for Vis {
-            type Value = Bytes;
+        struct Vis<T>(std::marker::PhantomData<T>);
+        impl<'d, T> Visitor<'d> for Vis<T>
+        where
+            T: TryFrom<Vec<u8>>,
+            T::Error: Display,
+        {
+            type Value = Bytes<T>;
 
             fn expecting(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
                 f.write_str("bytes")
@@ -405,19 +562,21 @@ impl<'de> Deserialize<'de> for Bytes {
             where
                 E: serde::de::Error,
             {
-                Ok(Bytes(v.into()))
+                Ok(Bytes(
+                    v.to_vec().try_into().map_err(serde::de::Error::custom)?,
+                ))
             }
         }
 
-        deserializer.deserialize_bytes(Vis)
+        deserializer.deserialize_bytes(Vis(std::marker::PhantomData))
     }
 }
 
-impl Serialize for Bytes {
+impl<T: AsRef<[u8]>> Serialize for Bytes<T> {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
         S: serde::Serializer,
     {
-        serializer.serialize_bytes(&self.0)
+        serializer.serialize_bytes(self.0.as_ref())
     }
 }

@@ -1,5 +1,5 @@
 {% macro nav_link(name) %}
-<div class="text-2xl mr-2 hover:text-highlight cursor-pointer page-select" hx-push-url="/{{ name|lower }}/"
+<div class="text-xl mr-2 hover:text-highlight cursor-pointer page-select" hx-push-url="/{{ name|lower }}/"
 	hx-get="/{{ name|lower }}/content" hx-target="#content" hx-swap="innerHTML" onclick="select_page(this)">
 	{{ name }}
 </div>
@@ -19,4 +19,14 @@
 	</div>
 	<div class="bg-primary ml-2 flex-1"></div>
 </div>
+{% endmacro %}
+
+{% macro form_errors(errors) %}
+{% if !errors.is_empty() %}
+<section class="p-2 bg-primary flex flex-col">
+	{% for error in errors %}
+	<p class="text-error">{{ error }}</p>
+	{% endfor %}
+</section>
+{% endif %}
 {% endmacro %}

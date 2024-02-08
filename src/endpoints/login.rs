@@ -9,13 +9,12 @@ use crate::model::{User, Username};
 
 use super::{HtmxRedirect, Theme};
 
-#[axum::debug_handler]
 pub async fn post(
     cookie: Cookies,
     State(state): State<crate::State>,
     axum::Form(mut form): axum::Form<Form>,
 ) -> Result<Result<HtmxRedirect, Form>, StatusCode> {
-    if let Err(err) = super::validate_username(&form.username) {
+    if let Err(err) = super::validate_username(form.username) {
         form.errors.push(err);
     }
 
@@ -32,7 +31,7 @@ pub async fn post(
         return Ok(Err(form));
     };
 
-    let session = Session::new(user.username, Duration::from_secs(60 * 60), user.theme);
+    let session = Session::new(user.username, Duration::from_secs(60 * 60), user.theme.0);
 
     cookie.private(&state.cookie_key).add(Cookie::new(
         "session",

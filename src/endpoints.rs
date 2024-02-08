@@ -1,11 +1,8 @@
-use core::fmt;
-
 use axum::extract::{FromRequestParts, State};
 use axum::http::request::Parts;
 use axum::http::StatusCode;
 use axum::response::Redirect;
-use serde::de::Visitor;
-use serde::{Deserialize, Deserializer, Serialize};
+use serde::{Deserialize, Serialize};
 use tower_cookies::Cookies;
 
 use crate::model::Username;
@@ -15,6 +12,7 @@ use self::chat::{Base64, FullChatList};
 pub mod chat;
 pub mod files;
 pub mod login;
+pub mod mail;
 pub mod profile;
 pub mod register;
 
@@ -29,13 +27,9 @@ pub async fn index(
     Ok(Ok(chat::full_list(State(state), session).await?))
 }
 
-fn validate_username(username: &str) -> Result<(), &'static str> {
+fn validate_username(username: Username) -> Result<(), &'static str> {
     if username.len() < 3 {
         return Err("Username must be at least 3 characters long.");
-    }
-
-    if username.len() > 32 {
-        return Err("Username must be at most 32 characters long.");
     }
 
     Ok(())
@@ -188,40 +182,6 @@ impl TryFrom<Vec<u8>> for ThemeBytes {
 
     fn try_from(v: Vec<u8>) -> Result<Self, Self::Error> {
         v.try_into().map(Self).map_err(|_| "wrong size")
-    }
-}
-
-impl<'de> Deserialize<'de> for ThemeBytes {
-    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-    where
-        D: Deserializer<'de>,
-    {
-        struct Vis;
-        impl Visitor<'_> for Vis {
-            type Value = ThemeBytes;
-
-            fn expecting(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-                f.write_str("bytes")
-            }
-
-            fn visit_bytes<E>(self, v: &[u8]) -> Result<Self::Value, E>
-            where
-                E: serde::de::Error,
-            {
-                Ok(ThemeBytes(v.try_into().map_err(serde::de::Error::custom)?))
-            }
-        }
-
-        deserializer.deserialize_bytes(Vis)
-    }
-}
-
-impl Serialize for ThemeBytes {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: serde::Serializer,
-    {
-        serializer.serialize_bytes(&self.0)
     }
 }
 

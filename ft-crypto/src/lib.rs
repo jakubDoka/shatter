@@ -2,11 +2,14 @@
 
 use std::collections::HashMap;
 
+use base64::engine::GeneralPurpose;
 use base64::Engine;
 use crypto::{SharedSecret, TransmutationCircle};
 use rand_core::{CryptoRng, OsRng, RngCore};
 use wasm_bindgen::prelude::wasm_bindgen;
 use wasm_bindgen::JsValue;
+
+const BASE64: GeneralPurpose = base64::engine::general_purpose::STANDARD;
 
 #[wasm_bindgen]
 pub fn hash_password(password: &str, salt: &str) -> String {
@@ -17,7 +20,7 @@ pub fn hash_password(password: &str, salt: &str) -> String {
         .hash_password_into(password.as_bytes(), &salt_bytes, &mut to_hash)
         .expect("us to not fuck up");
     let hash = crypto::hash::from_slice(&to_hash);
-    base64::engine::general_purpose::STANDARD.encode(hash)
+    BASE64.encode(hash)
 }
 
 #[wasm_bindgen]
@@ -177,7 +180,7 @@ impl SecretKey {
     }
 
     pub fn from_base64(base64: &str) -> Result<SecretKey, JsValue> {
-        let bytes = base64::engine::general_purpose::STANDARD.decode(base64.as_bytes());
+        let bytes = BASE64.decode(base64.as_bytes());
         let bytes = bytes.map_err(err_as_jsvalue)?;
         let inner = crypto::SharedSecret::try_from(bytes)
             .ok()
@@ -186,7 +189,7 @@ impl SecretKey {
     }
 
     pub fn as_base64(&self) -> String {
-        base64::engine::general_purpose::STANDARD.encode(self.inner)
+        BASE64.encode(self.inner)
     }
 }
 
@@ -287,15 +290,26 @@ impl EncPublicKey {
             inner: from_base64(base64)?,
         })
     }
+
+    pub fn hash(&self) -> String {
+        let hash = crypto::hash::from_slice(self.inner.as_bytes());
+        BASE64.encode(hash)
+    }
+
+    pub fn verify_with_hash(&self, base64_hash: &str) -> bool {
+        let mut hash = [0u8; 32];
+        _ = BASE64.decode_slice(base64_hash, &mut hash);
+        crypto::hash::from_slice(self.inner.as_bytes()) == hash
+    }
 }
 
 fn as_base64<T: TransmutationCircle>(bytes: &T) -> String {
     let bytes = bytes.as_bytes();
-    base64::engine::general_purpose::STANDARD.encode(bytes)
+    BASE64.encode(bytes)
 }
 
 fn from_base64<T: TransmutationCircle + Clone>(base64: &str) -> Result<T, JsValue> {
-    let bytes = base64::engine::general_purpose::STANDARD.decode(base64.as_bytes());
+    let bytes = BASE64.decode(base64.as_bytes());
     let bytes = bytes.map_err(err_as_jsvalue)?;
     let inner = T::try_from_slice(&bytes).ok_or("Invalid size")?;
     Ok(inner.clone())

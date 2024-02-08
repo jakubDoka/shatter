@@ -1,4 +1,4 @@
-use std::{borrow::BorrowMut, path::PathBuf};
+use std::{path::PathBuf};
 
 use anyhow::Context as _;
 use arrayvec::ArrayString;

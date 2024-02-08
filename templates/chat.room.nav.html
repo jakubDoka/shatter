@@ -1,0 +1,7 @@
+<div id="chat-room-nav" class="flex gap-2">
+	<div class="bg-primary text-highlight p-1">{{ name }}</div>
+	<div class="bg-primary p-1 button">settings</div>
+	<div hx-get="/chat-room/{{ name }}/invite" hx-target="#chat-room-nav" hx-swap="outerHTML"
+		class="bg-primary p-1 button">invite</div>
+	<div class="bg-primary w-full"></div>
+</div>

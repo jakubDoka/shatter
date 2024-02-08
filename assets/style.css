@@ -15,4 +15,14 @@
 	.encrypted, .stamp {
 		@apply hidden;
 	}
+
+	form {
+		@apply bg-secondary flex-col flex gap-2;
+	}
+	.normal-form {
+		@apply p-2;
+	}
+	.inline-form {
+		@apply bg-secondary flex flex-wrap justify-center gap-2 flex-1;
+	}
 }
