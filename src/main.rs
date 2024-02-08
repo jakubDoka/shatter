@@ -9,7 +9,7 @@ use tokio::sync::broadcast::Sender;
 use tower_livereload::predicate;
 
 use crate::endpoints::register::Register;
-use crate::endpoints::{login, register};
+use crate::endpoints::{login, profile, register};
 
 use self::endpoints::chat::{self, Message};
 use self::endpoints::login::Login;
@@ -73,6 +73,9 @@ async fn main() {
         .route("/register/", get(def_handler::<Register>))
         .route("/register", post(endpoints::register::post))
         .route("/register/content", get(def_handler::<register::Form>))
+        .route("/profile/:username/", get(profile::full))
+        .route("/profile", post(profile::edit))
+        .route("/profile/:username/content", get(profile::content))
         .nest_service("/assets", ServeDir::new("assets"))
         .route("/vaults", post(endpoints::files::set_vault))
         .route("/vaults", get(endpoints::files::get_vault))

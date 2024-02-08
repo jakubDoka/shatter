@@ -1,13 +1,11 @@
 <div class="mt-2 flex flex-row">
 	<div>
 		{% let size = 35 %}
-		<object data="/avatars/{{ by }}" type="image/png" width="{{ size }}" height="{{ size }}">
-			<img src="/assets/default-pfp.svg" width="{{ size }}" height="{{ size }}">
-		</object>
+		<img src="/avatars/{{ by }}" width="{{ size }}" height="{{ size }}">
 	</div>
 	<div id="{{ id }}" class="ml-2">
 		<div class="flex">
-			<b class="block {% if is_me %} text-highlight {% endif %}">{{ by }}</b>
+			<b class="block {% if is_me %} text-highlight {% endif %} username-{{ by }}">{{ by }}</b>
 			<div class="opacity-50 ml-2 stamp text-sm mt-auto">{{ sent }}</div>
 		</div>
 		<div class="encrypted" chat-name="{{ chat }}">{{ content }}</div>

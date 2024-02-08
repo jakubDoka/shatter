@@ -10,7 +10,10 @@
 {% endblock %}
 
 {% block nav_user %}
-<div class="mb-auto mt-auto font-bold">{{ username }}</div>
+<div hx-get="/profile/{{ username }}/content" hx-push-url="/profile/{{ username }}/" hx-target="#content"
+	hx-swap="innerHTML" class="mb-auto mt-auto font-bold hover:text-highlight page-select username-{{ username }}">
+	{{ username }}
+</div>
 <div class="hover:text-highlight cursor-pointer ml-2 p-1 bg-primary" onclick="logout()">logout</div>
 {% endblock %}
 

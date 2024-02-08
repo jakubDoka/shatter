@@ -1,13 +1,14 @@
 /** @type {import('tailwindcss').Config} */
 module.exports = {
-  content: ["./templates/**/*.html", "./assets/style.css"],
+  content: ["./templates/**/*.html", "./assets/style.css", "./src/**/*.rs"],
   theme: {
     extend: {
       colors: {
-        primary: "var(--color-primary)",
-        secondary: "var(--color-secondary)",
-        highlight: "var(--color-highlight)",
-        font: "var(--color-font)",
+        primary: "var(--primary-color)",
+        secondary: "var(--secondary-color)",
+        highlight: "var(--highlight-color)",
+        font: "var(--font-color)",
+        error: "var(--error-color)",
       }
     },
   },

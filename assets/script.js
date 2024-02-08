@@ -1,15 +1,35 @@
 import __wbg_init, { SecretKey, UserSecrets, Vault, hash_password } from './ft-crypto/ft_crypto.js';
 
-/** @type {UserSecrets} */
-let secrets = undefined;
+/**
+ * @param {HTMLInputElement} elem
+ */
+window.change_color = function(elem) {
+  const name = elem.name.replace('_', '-');
+  const value = elem.value;
+  document.documentElement.style.setProperty(`--${name}`, value);
+};
 
+/** @type {boolean} */
+let theme_applied = false;
 
-await __wbg_init();
-/** @type {Vault} */
-const vault = await load_vault();
+/**
+ * @param {HTMLButtonElement} button
+ * @param {string} form_id
+ */
+window.apply_theme = function(button, form_id) {
+  const form = document.getElementById(form_id);
+  if (!form) return console.error('No form with id:', form_id);
 
-init_page_selects();
-postprocess_html(document.body);
+  const inputs = form.querySelectorAll('input[type="color"]');
+  if (theme_applied) {
+    for (const input of inputs) input.value = document.documentElement.style
+      .removeProperty(`--${input.name.replace('_', '-')}`);
+    button.innerHTML = 'try';
+  } else {
+    for (const input of inputs) window.change_color(input);
+  }
+  theme_applied = !theme_applied;
+};
 
 /**
  * @param {HTMLDivElement} elem
@@ -28,39 +48,79 @@ window.validate_login = function(form) {
   report(password, validate_password(password));
 };
 
+/** 
+  * @param {HTMLFormElement} form
+  */
 window.validate_register = function(form) {
   /** @type {HTMLInputElement} */
   const username = form.elements['username'];
   /** @type {HTMLInputElement} */
   const password = form.elements['password'];
   /** @type {HTMLInputElement} */
-  const confirm_password = form.elements['confirm_password'];
+  const confirm = form.elements['confirm_password'];
 
-  console.log(password.value, confirm_password.value);
-  if (password.value !== confirm_password.value) {
-    report(confirm_password, 'Passwords do not match');
-    return;
-  }
+  console.log(password.value, confirm.value);
+  if (password.value !== confirm.value)
+    return report(confirm, 'Passwords do not match');
 
   report(password, validate_password(password, username.value));
-  report(confirm_password, '');
+  report(confirm, '');
+};
+
+/** 
+  * @param {HTMLFormElement} form
+  */
+window.validate_profile = function(form) {
+  /** @type {HTMLInputElement} */
+  const new_username = form.elements['username'];
+  /** @type {string} */
+  const old_username = localStorage.getItem('username');
+  
+  const username_changed = new_username.value !== old_username;
+
+  /** @type {NodeListOf<HTMLInputElement>} */
+  const passwords = form.querySelectorAll('input[type="password"]');
+  const [old, new_, confirm] = passwords;
+
+  let passwords_required = false;
+  for (const p of passwords) passwords_required |= p.value !== '';
+
+  if (!passwords_required && !username_changed) return;
+  if (username_changed && old.value === '')
+    return report(old, 'Old password is required when changing username');
+
+  for (const p of passwords) if (p.value === '' && !username_changed)
+    return report(p, 'Password is required');
+  
+
+  if (new_.value !== confirm.value)
+    return report(confirm, 'Passwords do not match');
+  report(confirm, '');
+
+  if (old.value === new_.value)
+    return report(new_, 'New password must be different from the old one');
+
+  for (const p of passwords) validate_password(p);
 };
 
 window.logout = function() {
+
+  const has_session = cookieExists('session');
   deleteCookie('session');
   localStorage.clear();
-  location.replace('/');
+  if (has_session) location.replace('/');
 };
 
-/**
- * @param {string} name
- */
-window.ensure_chat_key = async function(name) {
-  if (!vault) return window.logout();
-  if (vault.get_chat_key(name)) return;
-  vault.save_chat_key(name, new SecretKey())
-  await save_vault();
-};
+/** @type {UserSecrets} */
+let secrets = undefined;
+
+await __wbg_init();
+/** @type {Vault} */
+const vault = await load_vault();
+
+init_page_selects();
+postprocess_html(document.body);
+
 
 async function save_vault() {
   const username = localStorage.getItem('username');
@@ -68,12 +128,12 @@ async function save_vault() {
 
   const bytes = vault.to_bytes();
   console.log(bytes);
-  const secrets = get_secrets();
-  const encrypted_bytes = secrets.master_secret.encrypt(bytes);
+  const secs = get_secrets();
+  const encrypted_bytes = secs.master_secret.encrypt(bytes);
   const blob = new Blob([encrypted_bytes], { type: 'application/octet-stream' });
 
   await fetch(`/vaults`, { method: 'POST', body: blob })
-    .catch(console.log);
+    .catch(e => console.log('saving vault failed:', e));
   console.log('vault saved');
 }
 
@@ -158,13 +218,89 @@ document.body.addEventListener('htmx:responseError', function(event) {
   if (event.detail.xhr.status === 401) window.logout();
 });
 
+const preprocess = {
+  login: function(event) {
+    const params = event.detail.parameters;
+    localStorage.setItem('username', params.username);
+    // so that password is hard to remember and/or unreadable in case its revealed in the tools
+    // on accident
+    localStorage.setItem('password', btoa(params.password));
+    params.password = hash_password(params.password, params.username);
+  },
+  register: function(event) {
+    const params = event.detail.parameters;
+    params.password = hash_password(params.password, params.username);
+    params.confirm_password = params.password;
+  },
+  send_message: function(event) {
+    if (!vault) return window.logout();
+
+    const params = event.detail.parameters;
+
+    const key = vault.get_chat_key(params.name);
+    if (!key) return console.error('No key for chat name:', params.name);
+
+    const bytes = key.encrypt(new TextEncoder().encode(params.content));
+    params.content = btoa(String.fromCharCode(...bytes));
+  },
+  profile: function(event) {
+    try {
+      const params = event.detail.parameters;
+      if (!params.old_password) return;
+      
+      const username = localStorage.getItem('username');
+      if (!username) throw new Error('No username');
+
+      if (params.username !== username && params.new_password === '') {
+        params.new_password = hash_password(params.old_password, params.username);
+        params.old_password = hash_password(params.old_password, username);
+      } else {
+        params.new_password = hash_password(params.new_password, params.username);
+        params.old_password = hash_password(params.old_password, username);
+      }
+      params.confirm_password = params.new_password;
+
+    } catch (e) {
+      console.error('profile preprocess failed:', e);
+      event.detail.parameters = {};
+      return window.logout();
+    }
+  },
+};
+
 document.body.addEventListener('htmx:configRequest', function(event) {
   const preprocessor = preprocess[event.detail.elt.getAttribute('preprocess')];
   if (preprocessor) return preprocessor(event);
 });
 
+const postprocess = {
+  create_chat: async function(_, chat_name) {
+    vault.save_chat_key(chat_name, new SecretKey())
+    await save_vault();
+  },
+  profile: async function(_, username) {
+    const old_username = localStorage.getItem('username');
+    if (old_username === username) return;
+
+    secrets = undefined;
+    await save_vault();
+
+    localStorage.setItem('username', username);
+    for (const name_div of document.querySelectorAll(`.username-${old_username}`)) {
+      name_div.innerHTML = username;
+      name_div.classList.remove(`username-${old_username}`);
+      name_div.classList.add(`username-${username}`);
+    }
+  },
+};
+
 document.body.addEventListener('htmx:load', function(event) {
   postprocess_html(event.detail.elt);
+  const postprocessor_call = event.detail.elt.getAttribute('postprocess');
+  if (postprocessor_call) {
+    const [postprocessor, ...args] = postprocessor_call.split(';');
+    postprocess[postprocessor]?.(event, ...args);
+  }
 });
 
 /**
@@ -214,38 +350,19 @@ async function load_vault() {
   return new Vault(decrypted_vault);
 }
 
-const preprocess = {
-  login: function(event) {
-    const params = event.detail.parameters;
-    localStorage.setItem('username', params.username);
-    // so that password is hard to remember and/or unreadable in case its revealed in the tools
-    // on accident
-    localStorage.setItem('password', btoa(params.password));
-    params.password = hash_password(params.password, params.username);
-  },
-  register: function(event) {
-    const params = event.detail.parameters;
-    params.password = hash_password(params.password, params.username);
-    params.confirm_password = params.password;
-  },
-  send_message: function(event) {
-    if (!vault) return window.logout();
-
-    const params = event.detail.parameters;
-
-    const key = vault.get_chat_key(params.name);
-    if (!key) return console.error('No key for chat name:', params.name);
-
-    const bytes = key.encrypt(new TextEncoder().encode(params.content));
-    params.content = btoa(String.fromCharCode(...bytes));
-  },
-};
-
 /**
  * @param {string} name
  */
 function deleteCookie(name) {
   document.cookie = name + '=; expires=Thu, 01 Jan 1970 00:00:01 GMT; path=/';
+}
+
+/**
+ * @param {string} name
+ * @returns {boolean}
+ */
+function cookieExists(name) {
+  return document.cookie.split(';').some(c => c.trim().startsWith(name + '='));
 }
 
 /**

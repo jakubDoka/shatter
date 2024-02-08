@@ -6,7 +6,7 @@
 <div id="chat-list" hx-swap-oob="afterbegin" hx-select="*">
 	<div class="bg-primary p-1 text-lg text-center button mt-2" hx-replace-url="/chat-room/{{ chat }}/"
 		hx-get="/chat-room/{{ chat }}/content" hx-target="#content" hx-swap="innerHTML"
-		onclick="select_page(this)">
+		postprocess="create_chat;{{ chat }}">
 		{{ chat }}
 	</div>
 </div>

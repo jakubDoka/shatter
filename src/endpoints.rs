@@ -1,17 +1,21 @@
+use core::fmt;
+
 use axum::extract::{FromRequestParts, State};
 use axum::http::request::Parts;
 use axum::http::StatusCode;
 use axum::response::Redirect;
-use serde::{Deserialize, Serialize};
+use serde::de::Visitor;
+use serde::{Deserialize, Deserializer, Serialize};
 use tower_cookies::Cookies;
 
 use crate::model::Username;
 
-use self::chat::FullChatList;
+use self::chat::{Base64, FullChatList};
 
 pub mod chat;
 pub mod files;
 pub mod login;
+pub mod profile;
 pub mod register;
 
 pub async fn index(
@@ -37,14 +41,15 @@ fn validate_username(username: &str) -> Result<(), &'static str> {
     Ok(())
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Clone)]
 pub struct Session {
     pub username: Username,
     pub valid_until: u64,
+    pub theme: Base64<ThemeBytes>,
 }
 
 impl Session {
-    pub fn new(username: Username, valid_for: std::time::Duration) -> Self {
+    pub fn new(username: Username, valid_for: std::time::Duration, theme: ThemeBytes) -> Self {
         Self {
             username,
             valid_until: std::time::SystemTime::now()
@@ -53,7 +58,13 @@ impl Session {
                 .duration_since(std::time::UNIX_EPOCH)
                 .expect("duration since")
                 .as_secs(),
+            theme: Base64(theme),
         }
+    }
+
+    pub fn update(&mut self, username: Username, theme: ThemeBytes) {
+        self.username = username;
+        self.theme = Base64(theme);
     }
 
     pub fn extract_from_cookies(cookies: &Cookies, state: &impl CookieKey) -> Option<Self> {
@@ -61,6 +72,10 @@ impl Session {
             .private(state.cookie_key())
             .get("session")
             .and_then(|cookie| serde_json::from_str(cookie.value()).ok())
+    }
+
+    pub fn theme(&self) -> Theme {
+        self.theme.0.to_theme()
     }
 }
 
@@ -101,31 +116,136 @@ impl CookieKey for crate::State {
     }
 }
 
-#[derive(askama::Template)]
-#[template(path = "theme.txt")]
-pub struct Theme {
-    pub primary_color: u32,
-    pub secondary_color: u32,
-    pub highlight_color: u32,
-    pub font_color: u32,
-    pub error_color: u32,
+macro_rules! gen_theme {
+    (
+        struct $name:ident {$(
+            $field:ident: $default:literal,
+        )*}
+    ) => {
+        #[derive(askama::Template, serde::Deserialize, Clone, Copy)]
+        #[template(path = "theme.txt")]
+        pub struct $name {$(
+            #[serde(deserialize_with = "deserialize_html_color")]
+            pub $field: u32,
+        )*}
+
+        impl Theme {
+            pub fn fields(&self) -> impl Iterator<Item = ThemeField> {
+                [$(
+                    ThemeField {
+                        name: stringify!($field),
+                        value: self.$field,
+                    },
+                )*].into_iter()
+            }
+
+        }
+
+        impl Default for $name {
+            fn default() -> Self {
+                Self {$(
+                    $field: $default,
+                )*}
+            }
+        }
+
+    };
 }
 
-impl Default for Theme {
-    fn default() -> Self {
-        Self {
-            primary_color: 0x1E1E1E,
-            secondary_color: 0x494949,
-            highlight_color: 0x87DF6D,
-            font_color: 0xDCDCDC,
-            error_color: 0xFF0000,
-        }
+gen_theme! {
+    struct Theme {
+        primary_color: 0x1E1E1E,
+        secondary_color: 0x494949,
+        highlight_color: 0x87DF6D,
+        font_color: 0xDCDCDC,
+        error_color: 0xFF0000,
     }
+}
+
+impl Theme {
+    pub fn as_bytes(&self) -> ThemeBytes {
+        ThemeBytes(unsafe { std::mem::transmute(*self) })
+    }
+}
+
+#[derive(Copy, Clone, Default)]
+pub struct ThemeBytes([u8; std::mem::size_of::<Theme>()]);
+
+impl ThemeBytes {
+    pub fn to_theme(self) -> Theme {
+        unsafe { std::mem::transmute(self) }
+    }
+}
+
+impl AsRef<[u8]> for ThemeBytes {
+    fn as_ref(&self) -> &[u8] {
+        &self.0
+    }
+}
+
+impl TryFrom<Vec<u8>> for ThemeBytes {
+    type Error = &'static str;
+
+    fn try_from(v: Vec<u8>) -> Result<Self, Self::Error> {
+        v.try_into().map(Self).map_err(|_| "wrong size")
+    }
+}
+
+impl<'de> Deserialize<'de> for ThemeBytes {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        struct Vis;
+        impl Visitor<'_> for Vis {
+            type Value = ThemeBytes;
+
+            fn expecting(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+                f.write_str("bytes")
+            }
+
+            fn visit_bytes<E>(self, v: &[u8]) -> Result<Self::Value, E>
+            where
+                E: serde::de::Error,
+            {
+                Ok(ThemeBytes(v.try_into().map_err(serde::de::Error::custom)?))
+            }
+        }
+
+        deserializer.deserialize_bytes(Vis)
+    }
+}
+
+impl Serialize for ThemeBytes {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        serializer.serialize_bytes(&self.0)
+    }
+}
+
+pub struct ThemeField {
+    pub name: &'static str,
+    pub value: u32,
+}
+
+pub fn deserialize_html_color<'de, D>(deserializer: D) -> Result<u32, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let s = String::deserialize(deserializer)?;
+    let s = s.trim_start_matches('#');
+    u32::from_str_radix(s, 16).map_err(serde::de::Error::custom)
 }
 
 mod filters {
     pub fn css_color(input: &u32) -> askama::Result<String> {
         Ok(format!("#{input:x}"))
+    }
+
+    pub fn replace(input: &str, from: &str, to: &str) -> askama::Result<String> {
+        Ok(input.replace(from, to))
     }
 }
 
@@ -145,44 +265,3 @@ impl axum::response::IntoResponse for HtmxRedirect {
             .unwrap()
     }
 }
-
-//macro_rules! enum_template {
-//    (
-//        enum $name:ident {$(
-//            $variant:ident($content:ty)
-//        ),* $(,)?}
-//    ) => {
-//        pub enum $name {$(
-//            $variant($content),
-//        )*}
-//
-//        impl Template for $name {
-//            fn render_into(&self, writer: &mut (impl std::fmt::Write + ?Sized)) -> askama::Result<()> {
-//                match self {$(
-//                    Self::$variant(content) => content.render_into(writer),
-//                )*}
-//            }
-//
-//            const EXTENSION: Option<&'static str> = Some("html");
-//            const SIZE_HINT: usize = 0 $(.max(<$content as Template>::SIZE_HINT))*.max(0);
-//            const MIME_TYPE: &'static str = "text/html";
-//        }
-//
-//        impl fmt::Display for $name {
-//            #[inline]
-//            fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-//                self.render_into(f).map_err(|_| fmt::Error {})
-//            }
-//        }
-//    };
-//}
-//
-//enum_template! {
-//    enum PageContent {
-//        Chat(chat::ChatList),
-//        ChatRoom(chat::Room),
-//        NotFoundRoom(chat::RoomNotFound),
-//        Login(login::Form),
-//        Register(register::Form),
-//    }
-//}

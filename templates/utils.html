@@ -7,8 +7,7 @@
 
 {% macro chat_list_item(chat) %}
 <div class="bg-primary p-1 text-lg text-center button mt-2" hx-push-url="/chat-room/{{ chat }}/"
-	hx-get="/chat-room/{{ chat }}/content" hx-target="#content" hx-swap="innerHTML"
-	onclick="select_page(this); ensure_chat_key('{{ chat }}')">
+	hx-get="/chat-room/{{ chat }}/content" hx-target="#content" hx-swap="innerHTML" onclick="select_page(this)">
 	{{ chat }}
 </div>
 {% endmacro %}

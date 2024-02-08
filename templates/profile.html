@@ -1,0 +1,50 @@
+<div class="bg-highlight"></div>
+<div class="bg-error"></div>
+<div class="bg-font"></div>
+<form preprocess="profile" postprocess="profile;{{ username }}" hx-post="/profile" hx-swap="outerHTML" hx-target="this"
+	class="bg-secondary flex gap-2 p-2 flex-col" hx-on:htmx:validation:validate="validate_profile(this)">
+
+	{% if !errors.is_empty() %}
+	<section class="p-2 mb-2 bg-primary flex flex-col">
+		{% for error in errors %}
+		<p class="text-red-500">{{error}}</p>
+		{% endfor %}
+	</section>
+	{% endif %}
+	<div class="flex flex-wrap gap-2 justify-around flex-1">
+		{% if is_me %}
+		<input type="text" name="username" placeholder="username" maxlength="32" required value="{{ username }}"
+			class="line-input" />
+		{% else %}
+		<b>{{ username }}</b>
+		{% endif %}
+
+		{% if is_me %}
+		<div class="flex flex-row gap-2 flex-wrap justify-center">
+			{% for field_name in "old new confirm".split_whitespace() %}
+			<input type="password" name="{{ field_name }}_password" placeholder="{{ field_name }} password"
+				class="line-input" onkeyup="this.setCustomValidity('')" />
+			{% endfor %}
+		</div>
+		{% endif %}
+
+		<div id="theme-picker" class="flex flex-row outline outline-offset-[-3px] outline-4 outline-primary">
+			{% for field in theme.fields() %}
+			<div class='bg-{{ field.name|replace("_color", "") }}'>
+				<input {% if !is_me %} disabled {% endif %} class="opacity-0" type="color"
+					name="{{ field.name }}" value="{{ field.value|css_color }}"
+					oninput="change_color(this)" />
+			</div>
+			{% endfor %}
+
+			{% if !is_me %}
+			<button type="button" class="bg-primary p-1 button"
+				onclick="apply_theme(this, 'theme-picker')">try</button>
+			{% endif %}
+		</div>
+
+		{% if is_me %}
+		<input type="submit" value="save" class="bg-primary p-1 button" />
+		{% endif %}
+	</div>
+</form>

@@ -112,7 +112,7 @@ pub async fn full_list(
     session: Session,
 ) -> Result<FullChatList, StatusCode> {
     Ok(Base {
-        theme: Theme::default(),
+        theme: session.theme(),
         username: session.username,
         content: list_content(state, session).await?,
     })
@@ -129,12 +129,12 @@ pub async fn full_room(
             .map_err(super::internal)?
         {
             Some(content) => Ok(Base {
-                theme: Theme::default(),
+                theme: session.theme(),
                 username: session.username,
                 content,
             }),
             None => Err(Base {
-                theme: Theme::default(),
+                theme: session.theme(),
                 username: session.username,
                 content: RoomNotFound,
             }),
@@ -233,6 +233,8 @@ impl MessageBlock {
             message.is_me = message.by == username;
         }
 
+        messages.reverse();
+
         Ok(Some(Self {
             last_message_stamp: messages.first().map(|m| m.sent).unwrap_or_else(|| before),
             messages,
@@ -298,31 +300,19 @@ impl ChatList {
 
 #[derive(askama::Template)]
 #[template(path = "chat.html")]
-pub struct Base<T: Display + PageName> {
+pub struct Base<T: Display> {
     pub theme: Theme,
     pub username: Username,
     pub content: T,
 }
 
-pub trait PageName {
-    fn page_name(&self) -> &'static str {
-        "non-existant-page"
-    }
-}
-
-impl PageName for Room {}
-impl PageName for RoomNotFound {}
-
-impl PageName for ChatList {
-    fn page_name(&self) -> &'static str {
-        "chat-list"
-    }
-}
-
 #[derive(Clone)]
-pub struct Base64(pub Arc<[u8]>);
+pub struct Base64<T = Arc<[u8]>>(pub T);
 
-impl<'de> Deserialize<'de> for Base64 {
+impl<'de, T: TryFrom<Vec<u8>>> Deserialize<'de> for Base64<T>
+where
+    T::Error: Display,
+{
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
     where
         D: Deserializer<'de>,
@@ -330,13 +320,14 @@ impl<'de> Deserialize<'de> for Base64 {
         let s = String::deserialize(deserializer)?;
         base64::engine::general_purpose::STANDARD
             .decode(s)
+            .map_err(serde::de::Error::custom)?
+            .try_into()
             .map_err(serde::de::Error::custom)
-            .map(Into::into)
             .map(Base64)
     }
 }
 
-impl Serialize for Base64 {
+impl<T: AsRef<[u8]>> Serialize for Base64<T> {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
         S: serde::Serializer,
@@ -347,7 +338,7 @@ impl Serialize for Base64 {
     }
 }
 
-impl fmt::Display for Base64 {
+impl<T: AsRef<[u8]>> fmt::Display for Base64<T> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         base64::engine::general_purpose::STANDARD
             .encode(&self.0)

@@ -1,4 +1,4 @@
-use std::path::PathBuf;
+use std::{borrow::BorrowMut, path::PathBuf};
 
 use anyhow::Context as _;
 use arrayvec::ArrayString;
@@ -14,32 +14,36 @@ use crate::model::Username;
 
 use super::Session;
 
-pub async fn get_avatar(Path(username): Path<Username>) -> Result<impl IntoResponse, StatusCode> {
-    let path = ["files/avatars", &encode_name(username)]
+pub fn avatar_path(username: Username) -> PathBuf {
+    ["files/avatars", &encode_name(username)]
         .into_iter()
-        .collect();
-    read_file(path).await
+        .collect()
+}
+
+pub fn vault_path(username: Username) -> PathBuf {
+    ["files/vaults", &encode_name(username)]
+        .into_iter()
+        .collect()
+}
+
+pub async fn get_avatar(Path(username): Path<Username>) -> Result<impl IntoResponse, StatusCode> {
+    match read_file(avatar_path(username)).await {
+        Ok(file) => Ok(file),
+        Err(StatusCode::NOT_FOUND) => read_file("assets/default-pfp.svg".into()).await,
+        Err(err) => Err(err),
+    }
 }
 
 pub async fn set_avatar(session: Session, avatar: axum::body::Body) -> Result<(), StatusCode> {
-    let path = ["files/avatars", &encode_name(session.username)]
-        .into_iter()
-        .collect();
-    write_file(avatar, path).await
+    write_file(avatar, avatar_path(session.username)).await
 }
 
 pub async fn get_vault(session: Session) -> Result<impl IntoResponse, StatusCode> {
-    let path = ["files/vaults", &encode_name(session.username)]
-        .into_iter()
-        .collect();
-    read_file(path).await
+    read_file(vault_path(session.username)).await
 }
 
 pub async fn set_vault(session: Session, vault: axum::body::Body) -> Result<(), StatusCode> {
-    let path = ["files/vaults", &encode_name(session.username)]
-        .into_iter()
-        .collect();
-    write_file(vault, path).await
+    write_file(vault, vault_path(session.username)).await
 }
 
 fn encode_name(name: Username) -> ArrayString<64> {
@@ -82,7 +86,13 @@ async fn read_file(path: PathBuf) -> Result<impl IntoResponse, StatusCode> {
 
     let good_size = size.min(1 << 16) as usize;
 
-    Ok(AsyncReadBody::with_capacity(file, good_size))
+    let mime = if path.extension() == Some("svg".as_ref()) {
+        Some("image/svg+xml")
+    } else {
+        None
+    };
+
+    Ok(AsyncReadBody::with_capacity(mime, file, good_size))
 }
 
 async fn write_file(vault: axum::body::Body, path: PathBuf) -> Result<(), StatusCode> {
@@ -133,6 +143,7 @@ use std::{
 
 pub struct AsyncReadBody<T> {
     reader: T,
+    mime: Option<&'static str>,
     progress: usize,
     buffer: Vec<u8>,
 }
@@ -142,7 +153,14 @@ where
     T: tokio::io::AsyncRead + Unpin + Send + 'static,
 {
     fn into_response(self) -> askama_axum::Response {
-        askama_axum::Response::new(axum::body::Body::new(self))
+        if let Some(mime) = self.mime {
+            askama_axum::Response::builder()
+                .header("content-type", mime)
+                .body(axum::body::Body::new(self))
+                .unwrap()
+        } else {
+            askama_axum::Response::new(axum::body::Body::new(self))
+        }
     }
 }
 
@@ -152,10 +170,11 @@ where
 {
     /// Create a new [`AsyncReadBody`] wrapping the given reader,
     /// with a specific read buffer capacity
-    fn with_capacity(read: T, capacity: usize) -> Self {
+    fn with_capacity(mime: Option<&'static str>, read: T, capacity: usize) -> Self {
         Self {
             reader: read,
             progress: 0,
+            mime,
             buffer: vec![0; capacity],
         }
     }

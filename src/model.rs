@@ -16,6 +16,7 @@ use argon2::password_hash::Salt;
 use argon2::{PasswordHasher, PasswordVerifier};
 use base64::Engine;
 
+use crate::endpoints::{files, Theme, ThemeBytes};
 use crate::PubSub;
 
 pub type Db = mongodb::Database;
@@ -39,6 +40,8 @@ pub struct User {
     #[serde(rename = "_id")]
     pub username: Username,
     pub password_hash: String,
+    #[serde(default)]
+    pub theme: ThemeBytes,
 }
 
 impl User {
@@ -46,6 +49,7 @@ impl User {
         Ok(Self {
             username,
             password_hash: Self::hash_password(password, username)?,
+            theme: Theme::default().as_bytes(),
         })
     }
 
@@ -64,6 +68,102 @@ impl User {
         } else {
             Ok(None)
         }
+    }
+
+    pub async fn update(
+        db: &Db,
+        from: Username,
+        to: Username,
+        old_password: &str,
+        new_password: &str,
+        theme: Theme,
+    ) -> anyhow::Result<Result<(), &'static str>> {
+        let theme_bson = mongodb::bson::to_bson(&theme.as_bytes()).unwrap();
+
+        if from == to {
+            let old_password_hash = Self::hash_password(old_password, from)?;
+            let new_password_hash = if new_password.is_empty() {
+                old_password_hash.clone()
+            } else {
+                Self::hash_password(new_password, to)?
+            };
+            Self::collection(db)
+                .update_one(
+                    doc! { "_id": from.as_str(), "password_hash": old_password_hash },
+                    doc! { "$set": {
+                        "theme": theme_bson,
+                        "password_hash": new_password_hash
+                    } },
+                    None,
+                )
+                .await
+                .context("update theme")?;
+            return Ok(Ok(()));
+        }
+
+        let Some(mut s) = Self::collection(db)
+            .find_one(doc! { "_id": from.as_str() }, None)
+            .await?
+        else {
+            return Ok(Err("User was deleted in mean time."));
+        };
+
+        s.username = to;
+        s.theme = theme.as_bytes();
+        if !new_password.is_empty() {
+            if !Self::verify_password(old_password, &s.password_hash) {
+                return Ok(Err("Invalid password."));
+            }
+
+            s.password_hash = Self::hash_password(new_password, to)?;
+        }
+
+        if !s.create(db).await? {
+            return Ok(Err("Username already taken."));
+        }
+
+        Self::delete(db, from).await?;
+
+        Member::collection(db)
+            .update_many(
+                doc! { "user": from.as_str() },
+                doc! { "$set": { "user": to.as_str() } },
+                None,
+            )
+            .await
+            .context("rename user in chat")?;
+
+        Message::collection(db)
+            .update_many(
+                doc! { "author": from.as_str() },
+                doc! { "$set": { "author": to.as_str() } },
+                None,
+            )
+            .await
+            .context("rename user in messages")?;
+
+        let vault_path = files::vault_path(from);
+        let new_vault_path = files::vault_path(to);
+        let avatar_path = files::avatar_path(from);
+        let new_avatar_path = files::avatar_path(to);
+
+        if vault_path.exists() {
+            std::fs::rename(vault_path, new_vault_path).context("rename vault")?;
+        }
+
+        if avatar_path.exists() {
+            std::fs::rename(avatar_path, new_avatar_path).context("rename avatar")?;
+        }
+
+        Ok(Ok(()))
+    }
+
+    pub async fn delete(db: &Db, username: Username) -> anyhow::Result<()> {
+        Self::collection(db)
+            .delete_one(doc! { "_id": username.as_str() }, None)
+            .await
+            .context("delete user")
+            .map(drop)
     }
 
     pub async fn create(&self, db: &Db) -> anyhow::Result<bool> {
@@ -91,7 +191,7 @@ impl User {
     fn hash_password(password: &str, username: Username) -> anyhow::Result<String> {
         let mut userame_bytes = [0xffu8; 32];
         userame_bytes[..username.len().min(32)].copy_from_slice(username.as_bytes());
-        let value = base64::engine::general_purpose::STANDARD.encode(userame_bytes);
+        let value = base64::engine::general_purpose::STANDARD_NO_PAD.encode(userame_bytes);
         let salt = Salt::from_b64(&value)?;
 
         Ok(argon2::Argon2::default()
@@ -243,8 +343,8 @@ impl Message {
                     "timestamp": { "$lt": before },
                 },
                 FindOptions::builder()
-                    .sort(doc! { "_id": 1 })
                     .limit(30)
+                    .sort(doc! { "_id": -1 })
                     .build(),
             )
             .await

@@ -32,7 +32,7 @@ pub async fn post(
         return Ok(Err(form));
     };
 
-    let session = Session::new(user.username, Duration::from_secs(60 * 60));
+    let session = Session::new(user.username, Duration::from_secs(60 * 60), user.theme);
 
     cookie.private(&state.cookie_key).add(Cookie::new(
         "session",
