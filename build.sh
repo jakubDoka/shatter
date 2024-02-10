@@ -1,1 +1,1 @@
-cargo build --release --no-default-features
+cargo +nightly build --release --no-default-features
