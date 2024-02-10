@@ -1,3 +1,7 @@
+{% for message in messages.iter().rev() %}
+{{ message|safe }}
+{% endfor %}
+
 {% if messages.is_empty() %}
 <div class="bg-secondary text-center">end of message history</div>
 {% else %}
@@ -6,7 +10,3 @@
 	loading more messages...
 </div>
 {% endif %}
-
-{% for message in messages %}
-{{ message|safe }}
-{% endfor %}

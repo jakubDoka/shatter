@@ -1,10 +1,10 @@
 {%- import "utils.html" as utils -%}
 <form preprocess="send_message" hx-post="./messages" hx-vals='{"name": "{{ name }}"}' hx-swap="outerHTML"
-	hx-target="this" class="flex">
+	hx-target="this" class="flex" hx-trigger="keyup[key=='Enter'&&!shiftKey] from:#message">
 	{% call utils::form_errors(errors) %}
 	<div class="inline-form">
-		<input type="text" id="message" name="content" class="bg-primary flex-1 outline-none p-1" required
-			maxlength="1024">
+		<textarea id="message" name="content" rows="1" class="bg-primary flex-1 outline-none p-1 resize-none"
+			required maxlength="1024" onkeypress="filter_enter(event)"></textarea>
 		<input type="submit" value="send" class="bg-primary p-1 button">
 	</div>
 </form>

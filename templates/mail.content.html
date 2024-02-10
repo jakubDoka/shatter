@@ -1,7 +1,8 @@
 <div class="bg-secondary p-2 gap-2 overflow-y-auto w-full h-full absolute flex flex-col">
 	<div class="h-full relative">
-		<div id="messages" class="bg-primary flex flex-col h-full w-full p-2 absolute overflow-y-auto">
+		<div id="mail" class="history-scroll gap-2">
 			{{ init_block|safe }}
 		</div>
 	</div>
 </div>
+{% include "sse.html" %}

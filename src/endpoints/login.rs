@@ -38,7 +38,7 @@ pub async fn post(
         serde_json::to_string(&session).unwrap(),
     ));
 
-    Ok(Ok(HtmxRedirect("/")))
+    Ok(Ok(HtmxRedirect("/chat-list/")))
 }
 
 #[derive(askama::Template, Default)]

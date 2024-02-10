@@ -15,6 +15,7 @@ pub mod login;
 pub mod mail;
 pub mod profile;
 pub mod register;
+pub mod sse;
 
 pub async fn index(
     cookies: Cookies,

@@ -1,14 +1,12 @@
 <div class="bg-secondary p-2 gap-2 overflow-y-auto w-full h-full absolute flex flex-col">
+	<div class="hidden" id="chat-name">{{ name }}</div>
 	{% include "chat.room.nav.html" %}
 	<div class="h-full relative">
-		<div id="messages" class="bg-primary flex flex-col h-full w-full p-2 absolute overflow-y-auto">
+		<div id="messages" class="history-scroll">
 			{{ init_block|safe }}
-			<div id="sse-elem" hx-ext="sse" sse-connect="./new-messages">
-				<div sse-swap="NewMessage" hx-swap="beforebegin" hx-target="#sse-elem"></div>
-				<div sse-swap="NameChange" hx-swap="outerHTML" hx-target=""></div>
-			</div>
 		</div>
 	</div>
 	{% let errors = Vec::from_iter("".chars()) %}
 	{% include "chat.room.send.html" %}
 </div>
+{% include "sse.html" %}

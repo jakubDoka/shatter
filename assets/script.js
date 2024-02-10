@@ -1,4 +1,7 @@
-import __wbg_init, { SecretKey, UserSecrets, Vault, hash_password } from './ft-crypto/ft_crypto.js';
+"use strict";
+
+import __wbg_init, { EncPublicKey, SecretKey, UserSecrets, Vault, hash_password } from './ft-crypto/ft_crypto.js';
+
 
 /**
  * @param {HTMLInputElement} elem
@@ -59,26 +62,11 @@ window.validate_register = function(form) {
   /** @type {HTMLInputElement} */
   const confirm = form.elements['confirm_password'];
 
-  console.log(password.value, confirm.value);
   if (password.value !== confirm.value)
     return report(confirm, 'Passwords do not match');
 
   report(password, validate_password(password, username.value));
   report(confirm, '');
-};
-
-/**
- * @param {HTMLButtonElement} button
- */
-window.compute_pk_hash = function(button) { 
-  const secs = get_secrets();
-  if (!secs) return;
-
-  navigator.clipboard.writeText(secs.enc.public_key.hash());
-
-  const prev = button.innerHTML;
-  button.innerHTML = '~~~~copied~~~~';
-  setTimeout(() => button.innerHTML = prev, 1000);
 };
 
 /** 
@@ -88,7 +76,7 @@ window.validate_profile = function(form) {
   /** @type {HTMLInputElement} */
   const new_username = form.elements['username'];
   /** @type {string} */
-  const old_username = localStorage.getItem('username');
+  const old_username = get_username();
   
   const username_changed = new_username.value !== old_username;
 
@@ -117,38 +105,106 @@ window.validate_profile = function(form) {
   for (const p of passwords) validate_password(p);
 };
 
-window.logout = function() {
+/**
+ * @param {HTMLFormElement} form
+ */
+window.validate_chat_invite = function(form) {
+  const pk_hash = form.elements['pk_hash'];
+  if (!pk_hash) return;
 
+  if (pk_hash.value === '') return report(pk_hash, 'Public key hash is required');
+  const user_key = form.elements['user_key'];
+  if (user_key.value === '') return report(pk_hash, 'Server did not snd user key, wath the heck?');
+
+  let parsed_pk = undefined;
+  try {
+    parsed_pk = EncPublicKey.from_base64(user_key.value);
+  } catch (e) {
+    return report(pk_hash, 'Failed to parse user key, really now...');
+  }
+
+  let belongs_to_parsed_pk = undefined;
+  try {
+    belongs_to_parsed_pk = parsed_pk.verify_with_hash(pk_hash.value);
+  } catch (e) {
+    return report(pk_hash, `Hash you provided is invalid: ${e}`);
+  }
+
+  if (!belongs_to_parsed_pk)
+    return report(pk_hash, 
+      'Public key does not match the hash, either your hash is incorrect or server attempted to MITM.'
+    );
+};
+
+/**
+ * @param {HTMLButtonElement} button
+ */
+window.compute_pk_hash = function(button) { 
+  const secs = get_secrets();
+  if (!secs) return;
+
+  console.log(secs.enc.public_key.hash());
+
+  navigator.clipboard.writeText(secs.enc.public_key.hash());
+
+  const prev = button.innerHTML;
+  button.innerHTML = '~~~~copied~~~~';
+  setTimeout(() => button.innerHTML = prev, 1000);
+};
+
+window.logout = function() {
   const has_session = cookieExists('session');
   deleteCookie('session');
-  localStorage.clear();
+  sessionStorage.clear();
   if (has_session) location.replace('/');
 };
 
-/** @type {UserSecrets} */
+/**
+ * @param {KeyboardEvent} event
+ */
+window.filter_enter = function(event) {
+  if (event.key === 'Enter' && !event.ctrlKey && !event.shiftKey) event.preventDefault();
+}
+
+/** @type {{ username: string, password: string, secs: UserSecrets } | undefined} */
 let secrets = undefined;
+
+/**
+  * In case of failure we logout.
+  * @returns {UserSecrets}
+  */
+function get_secrets() {
+  const username = get_username();
+  const password = get_password();
+
+  if (!username) return window.logout();
+  if (!password) return window.logout();
+
+  if (secrets?.password === password
+    && secrets?.username === username) return secrets;
+
+  return secrets = new UserSecrets(password, username);
+}
 
 await __wbg_init();
 /** @type {Vault} */
 const vault = await load_vault();
 
-init_page_selects();
+update_page_selects();
 postprocess_html(document.body);
 
 
 async function save_vault() {
-  const username = localStorage.getItem('username');
+  const username = get_username();
   if (!username) return window.logout();
 
   const bytes = vault.to_bytes();
-  console.log(bytes);
   const secs = get_secrets();
   const encrypted_bytes = secs.master_secret.encrypt(bytes);
   const blob = new Blob([encrypted_bytes], { type: 'application/octet-stream' });
 
   await fetch(`/vaults`, { method: 'POST', body: blob })
-    .catch(e => console.log('saving vault failed:', e));
-  console.log('vault saved');
+    .catch(e => console.error('saving vault failed:', e));
 }
 
 /**
@@ -161,10 +217,13 @@ function postprocess_html(elem) {
   handle_focus(elem);
 }
 
-function init_page_selects() {
+function update_page_selects(pathname = location.pathname) {
   const pages = document.querySelectorAll('.page-select');
-  for (const page of pages) if (location.pathname.indexOf(page.innerHTML.trim()) !== -1)
+  for (const page of pages) if (pathname.indexOf(page.innerHTML.trim()) !== -1) {
     page.classList.add('active-page');
+  } else {
+    page.classList.remove('active-page');
+  }
 }
 
 /**
@@ -177,7 +236,7 @@ function localize_stamps(elem) {
     e.innerHTML = new Date(e.innerHTML).toLocaleString();
     e.classList.remove('stamp');
   } catch (e) {
-    console.log("broken data: ", e);
+    console.error("broken data: ", e);
     e.innerHTML = 'Error parsing date!';
   }
 }
@@ -235,17 +294,16 @@ document.body.addEventListener('htmx:responseError', function(event) {
 const preprocess = {
   login: function(event) {
     const params = event.detail.parameters;
-    localStorage.setItem('username', params.username);
     // so that password is hard to remember and/or unreadable in case its revealed in the tools
     // on accident
-    localStorage.setItem('password', btoa(params.password));
+    set_password(params.password);
     params.password = hash_password(params.password, params.username);
   },
   register: function(event) {
     const params = event.detail.parameters;
+    const secrets = new UserSecrets(params.password, params.username);
     params.password = hash_password(params.password, params.username);
     params.confirm_password = params.password;
-    const secrets = new UserSecrets(params.password, params.username);
     params.public_key = secrets.enc.public_key.as_base64();
   },
   send_message: function(event) {
@@ -261,29 +319,79 @@ const preprocess = {
   },
   profile: function(event) {
     try {
-      const secs = get_secrets();
+      let secs = get_secrets();
       if (!secs) throw new Error('No secrets');
 
       const params = event.detail.parameters;
       params.public_key = secs.enc.public_key.as_base64();
       if (!params.old_password) return;
       
-      const username = localStorage.getItem('username');
+      const username = get_username();
       if (!username) throw new Error('No username');
 
       if (params.username !== username && params.new_password === '') {
+        secs = new UserSecrets(params.old_password, params.username);
         params.new_password = hash_password(params.old_password, params.username);
         params.old_password = hash_password(params.old_password, username);
       } else {
+        secs = new UserSecrets(params.new_password, params.username);
         params.new_password = hash_password(params.new_password, params.username);
         params.old_password = hash_password(params.old_password, username);
       }
+      params.public_key = secs.enc.public_key.as_base64();
       params.confirm_password = params.new_password;
     } catch (e) {
       console.error('profile preprocess failed:', e);
       event.detail.parameters = {};
       return window.logout();
     }
+
+  },
+  chat_invite: function(event) {
+    const secs = get_secrets();
+    if (!secs) return window.logout();
+
+    const params = event.detail.parameters;
+    if (!params.user_key) return;
+    let key = undefined;
+    try {
+      key = EncPublicKey.from_base64(params.user_key);
+    } catch (e) {
+      return console.error('Failed to parse key:', e);
+    }
+
+    const chat_name = get_current_chat_name();
+    if (!chat_name) return console.error('No chat name, but yet... chat invite?');
+
+    const chat_sec = vault.get_chat_key(chat_name);
+    if (!chat_sec) return console.error('No chat key for chat:', chat_name);
+
+    params.ciphertext = secs.enc.encapsulate(key, chat_sec);
+  },
+  handle_invite: function(event) {
+    const params = event.detail.parameters;
+
+    if (params.decline)
+      return event.detail.parameters = { command: 'decline' };
+
+    const secs = get_secrets();
+    if (!secs) return window.logout();
+
+    if (!params.ciphertext) return console.error('No ciphertext, what?');
+    if (!params.chat) return console.error('No chat name, what?');
+    if (!vault) return window.logout();
+
+    let chat_sec = undefined 
+    try {
+      chat_sec = secs.enc.decapsulate(params.ciphertext);
+    } catch (e) {
+      console.error('Failed to decapsulate:', e);
+      return event.detail.parameters = { command: 'failed' };
+    }
+
+    vault.save_chat_key(params.chat, chat_sec);
+    save_vault();
+    event.detail.parameters = { command: 'accept' };
   },
 };
 
@@ -297,11 +405,8 @@ const postprocess = {
     vault.save_chat_key(chat_name, new SecretKey())
     await save_vault();
   },
-  profile: async function(_, username) {
-    if (username === localStorage.getItem('username')) return;
-
-    localStorage.setItem('username', username);
-    secrets = undefined;
+  profile: async function(_, failed) {
+    if (Boolean(failed)) return;
     await save_vault();
   },
 };
@@ -315,34 +420,17 @@ document.body.addEventListener('htmx:load', function(event) {
   }
 });
 
-/**
-  * In case of failure we logout.
-  * @returns {UserSecrets}
-  */
-function get_secrets() {
-  if (secrets) return secrets;
+document.body.addEventListener('htmx:historyRestore', function(event) {
+  update_page_selects(event.detail.path);
+});
 
-  const username = localStorage.getItem('username');
-  if (!username) return window.logout();
-  let password = localStorage.getItem('password');
-  if (!password) return window.logout();
-
-  try {
-    password = atob(password);
-  } catch (e) {
-    return window.logout();
-  }
-
-  return secrets = new UserSecrets(password, username);
-}
 
 /**
  * In case of failure we logout.
  * @returns {Promise<Vault>}
- *
  */
 async function load_vault() {
-  const username = localStorage.getItem('username');
+  const username = get_username();
   if (!username) return;
 
   const secrets = get_secrets();
@@ -397,3 +485,36 @@ function report(elem, message) {
   elem.reportValidity();
 }
 
+/**
+  * @returns {string | undefined}
+  */
+function get_current_chat_name() {
+  return document.getElementById('chat-name')?.innerHTML;
+}
+
+/**
+ * @return {string | undefined}
+ */
+function get_username() {
+  return document.getElementById('nav-username')?.innerHTML?.trim() ?? window.logout();
+}
+
+/**
+ * @return {string | undefined}
+ */
+function get_password() {
+  const pass = sessionStorage.getItem('password');
+  if (!pass) return window.logout();
+  try {
+    return atob(pass);
+  } catch(e) {
+    return window.logout();
+  }
+}
+
+/**
+ * @param {string} password
+ */
+function set_password(password) {
+  sessionStorage.setItem('password', btoa(password));
+}

@@ -16,6 +16,10 @@
 		@apply hidden;
 	}
 
+	.history-scroll {
+		@apply bg-primary flex flex-col h-full w-full p-2 absolute overflow-y-auto scale-y-[-1] [&>*]:scale-y-[-1];
+	}
+
 	form {
 		@apply bg-secondary flex-col flex gap-2;
 	}

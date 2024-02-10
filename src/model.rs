@@ -5,10 +5,10 @@ use std::sync::Arc;
 use anyhow::Context;
 use arrayvec::ArrayString;
 use dashmap::mapref::entry::Entry;
-use futures::TryStreamExt;
+use futures::{StreamExt, TryStreamExt};
 use mongodb::bson::doc;
 use mongodb::error::{WriteError, WriteFailure};
-use mongodb::options::FindOptions;
+use mongodb::options::{FindOptions, IndexOptions};
 use mongodb::IndexModel;
 use serde::de::Visitor;
 use serde::{Deserialize, Deserializer, Serialize};
@@ -18,7 +18,7 @@ use argon2::{PasswordHasher, PasswordVerifier};
 use base64::Engine;
 
 use crate::endpoints::{files, Theme, ThemeBytes};
-use crate::PubSub;
+use crate::ChatPubSub;
 
 pub type Db = mongodb::Database;
 pub type Username = ArrayString<32>;
@@ -33,57 +33,80 @@ pub async fn connect(url: &str, db: &str) -> anyhow::Result<Db> {
     User::setup_collection(&db).await?;
     Message::setup_collection(&db).await?;
     Mail::setup_collection(&db).await?;
+    Member::setup_collection(&db).await?;
 
     Ok(db)
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Clone)]
 #[serde(untagged)]
 pub enum MailPayload {
     ChatInvite {
         chat: Chatname,
         from: Username,
+        role: Role,
         ciphertext: Bytes<Ciphertext>,
     },
 }
 
-#[derive(Serialize, Deserialize, askama::Template)]
-#[template(path = "mail.html")]
+#[derive(Serialize, Deserialize, Clone)]
 pub struct Mail {
     #[serde(rename = "_id")]
     pub id: mongodb::bson::oid::ObjectId,
     pub to: Username,
-    pub stamp: chrono::DateTime<chrono::Utc>,
+    pub stamp: mongodb::bson::DateTime,
     #[serde(flatten)]
     pub payload: MailPayload,
 }
 
 impl Mail {
-    pub async fn send(db: &Db, to: Username, payload: MailPayload) -> anyhow::Result<bool> {
+    pub async fn get_and_delete(
+        db: &Db,
+        id: mongodb::bson::oid::ObjectId,
+        username: Username,
+    ) -> anyhow::Result<Option<Self>> {
+        let mail = Self::collection(db)
+            .find_one_and_delete(doc! { "_id": id, "to": username.as_str() }, None)
+            .await
+            .context("find mail")?;
+        Ok(mail)
+    }
+
+    pub fn new(to: Username, payload: MailPayload) -> Self {
         Self {
             id: mongodb::bson::oid::ObjectId::new(),
             to,
-            stamp: chrono::Utc::now(),
+            stamp: mongodb::bson::DateTime::now(),
             payload,
         }
-        .create(db)
-        .await
     }
 
-    pub async fn create(&self, db: &Db) -> anyhow::Result<bool> {
-        if Self::collection(db)
-            .count_documents(doc! { "to": self.to.as_str() }, None)
-            .await?
-            > 1024
-        {
-            return Ok(false);
+    pub async fn create(&self, db: &Db) -> anyhow::Result<Result<(), &'static str>> {
+        if Self::count(db, self.to).await? > 1024 {
+            return Ok(Err("Users mailbox is full."));
+        }
+
+        match &self.payload {
+            MailPayload::ChatInvite { chat, .. } => {
+                if Member::exists(db, *chat, self.to).await? {
+                    return Ok(Err("User is already in chat."));
+                }
+            }
         }
 
         Self::collection(db)
             .insert_one(self, None)
             .await
             .context("create mail")
-            .map(|_| true)
+            .map(drop)
+            .map(Ok)
+    }
+
+    pub async fn count(db: &Db, to: Username) -> anyhow::Result<u64> {
+        Self::collection(db)
+            .count_documents(doc! { "to": to.as_str() }, None)
+            .await
+            .context("count mail")
     }
 
     pub async fn get_before(
@@ -92,11 +115,11 @@ impl Mail {
         before: chrono::DateTime<chrono::Utc>,
     ) -> anyhow::Result<Vec<Self>> {
         let before = mongodb::bson::DateTime::from_millis(before.timestamp_millis());
-        Self::collection(db)
+        Ok(Self::collection(db)
             .find(
                 doc! {
                     "to": to.as_str(),
-                    "sent": { "$lt": before },
+                    "stamp": { "$lt": before },
                 },
                 FindOptions::builder()
                     .limit(30)
@@ -105,9 +128,17 @@ impl Mail {
             )
             .await
             .context("find mail")?
-            .try_collect()
-            .await
-            .context("fetch mail")
+            .filter_map(|mail| async move {
+                match mail {
+                    Ok(mail) => Some(mail),
+                    Err(err) => {
+                        log::error!("mail is malformed: {}", err);
+                        None
+                    }
+                }
+            })
+            .collect()
+            .await)
     }
 
     fn collection(db: &Db) -> mongodb::Collection<Mail> {
@@ -184,24 +215,22 @@ impl User {
         public_key: PublicKey,
     ) -> anyhow::Result<Result<(), &'static str>> {
         if from == to {
-            let old_password_hash = Self::hash_password(old_password, from)?;
-            let new_password_hash = if new_password.is_empty() {
-                old_password_hash.clone()
-            } else {
-                Self::hash_password(new_password, to)?
-            };
             let theme_bson = mongodb::bson::to_bson(&Bytes(theme.as_bytes())).unwrap();
             let pk_bson = mongodb::bson::to_bson(&Bytes(public_key.as_ref())).unwrap();
+
+            let mut query = doc! { "_id": from.as_str() };
+            let mut update = doc! { "$set": {
+                "theme": theme_bson,
+                "public_key": pk_bson,
+            } };
+
+            if !new_password.is_empty() {
+                query.insert("password_hash", Self::hash_password(old_password, from)?);
+                update.insert("password_hash", Self::hash_password(new_password, to)?);
+            }
+
             Self::collection(db)
-                .update_one(
-                    doc! { "_id": from.as_str(), "password_hash": old_password_hash },
-                    doc! { "$set": {
-                        "theme": theme_bson,
-                        "password_hash": new_password_hash,
-                        "public_key": pk_bson,
-                    } },
-                    None,
-                )
+                .update_one(query, update, None)
                 .await
                 .context("update theme")?;
             return Ok(Ok(()));
@@ -378,14 +407,48 @@ impl Member {
     fn collection(db: &Db) -> mongodb::Collection<Member> {
         db.collection("members")
     }
+
+    async fn setup_collection(db: &Db) -> anyhow::Result<()> {
+        let coll = Self::collection(db);
+
+        coll.create_index(
+            IndexModel::builder()
+                .keys(doc! { "chat": 1, "user": 1 })
+                .options(IndexOptions::builder().unique(true).build())
+                .build(),
+            None,
+        )
+        .await
+        .context("partition member by chat and user")?;
+
+        Ok(())
+    }
+
+    pub async fn exists(
+        db: &mongodb::Database,
+        chat: ArrayString<32>,
+        to: ArrayString<32>,
+    ) -> anyhow::Result<bool> {
+        Self::collection(db)
+            .count_documents(doc! { "chat": chat.as_str(), "user": to.as_str() }, None)
+            .await
+            .context("find member")
+            .map(|n| n > 0)
+    }
 }
 
-#[derive(Serialize, Deserialize, Default)]
+#[derive(Serialize, Deserialize, Default, Debug, Clone, Copy)]
 pub enum Role {
     Owner,
     Admin,
     #[default]
     Member,
+}
+
+impl fmt::Display for Role {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{:?}", format!("{:?}", self).to_lowercase())
+    }
 }
 
 #[derive(Serialize, Deserialize)]
@@ -399,7 +462,7 @@ pub struct Message {
 }
 
 impl Message {
-    pub fn send(self, psb: &PubSub) -> anyhow::Result<()> {
+    pub fn send(self, psb: &ChatPubSub) -> anyhow::Result<()> {
         match psb.entry(self.chat) {
             Entry::Occupied(o) => {
                 if o.get().sender.receiver_count() == 0 {

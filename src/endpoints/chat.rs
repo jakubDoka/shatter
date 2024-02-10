@@ -1,20 +1,21 @@
 use core::fmt;
-use std::convert::Infallible;
+
 use std::fmt::Display;
 use std::sync::Arc;
 
 use anyhow::Result;
-use askama::Template;
+
 use axum::extract::{Path, Query, State};
 use axum::http::StatusCode;
-use axum::response::sse::{Event, KeepAlive};
-use axum::response::Sse;
+
+
 use base64::Engine;
 
-use futures::Stream;
+
 use serde::{Deserialize, Deserializer, Serialize};
 
 use crate::model::{self, Chat, Chatname, Db, Username};
+
 
 use super::{Session, Theme};
 
@@ -48,39 +49,6 @@ pub async fn send_message(
         content: Base64(Arc::from([])),
         errors: vec![],
     })
-}
-
-pub async fn new_messages_sse(
-    Path(room): Path<Chatname>,
-    State(state): State<crate::State>,
-    session: Session,
-) -> Result<Sse<impl Stream<Item = Result<Event, Infallible>>>, StatusCode> {
-    let stream = state
-        .message_pubsub
-        .entry(room)
-        .or_default()
-        .sender
-        .subscribe();
-
-    let stream = futures::stream::unfold(stream, move |mut stream| async move {
-        let Ok(mut message) = stream.recv().await else {
-            return None;
-        };
-
-        message.is_me = message.by == session.username;
-
-        let Ok(message) = message.render() else {
-            log::error!("failed to render message {}", message);
-            return None;
-        };
-
-        Some((
-            Ok(Event::default().event("NewMessage").data(message)),
-            stream,
-        ))
-    });
-
-    Ok(Sse::new(stream).keep_alive(KeepAlive::default()))
 }
 
 pub async fn create(
@@ -255,12 +223,12 @@ impl MessageBlock {
 #[derive(askama::Template, Clone)]
 #[template(path = "chat.room.message.html")]
 pub struct Message {
-    id: mongodb::bson::oid::ObjectId,
-    sent: chrono::DateTime<chrono::Utc>,
-    chat: Chatname,
-    by: Username,
-    is_me: bool,
-    content: Base64,
+    pub id: mongodb::bson::oid::ObjectId,
+    pub sent: chrono::DateTime<chrono::Utc>,
+    pub chat: Chatname,
+    pub by: Username,
+    pub is_me: bool,
+    pub content: Base64,
 }
 
 impl From<model::Message> for Message {

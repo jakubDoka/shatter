@@ -1,0 +1,7 @@
+<div hx-swap-oob="innerHTML" id="mail-counter">{% if count != 0 %}{{ count }}{% endif %}</div>
+{% if error.is_some() %}
+<div class="bg-secondary p-2 gap-2 flex flex-row flex-wrap">
+	<div class="text-center flex-1 text-error">{{ error.unwrap() }}</div>
+	<button class="bg-primary p-1 button" onclick="this.parentElement.remove()">close</button>
+</div>
+{% endif %}

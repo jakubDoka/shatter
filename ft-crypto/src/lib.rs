@@ -115,7 +115,7 @@ impl UserSecrets {
 
     #[wasm_bindgen(getter)]
     pub fn master_secret(&self) -> SecretKey {
-        self.master_secret.clone()
+        self.master_secret
     }
 }
 
@@ -148,7 +148,7 @@ impl<'a> RngCore for Rng<'a> {
 impl CryptoRng for Rng<'_> {}
 
 #[wasm_bindgen]
-#[derive(Clone)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct SecretKey {
     inner: crypto::SharedSecret,
 }
@@ -225,45 +225,26 @@ impl EncKeypair {
         as_base64(&self.inner)
     }
 
-    pub fn encapsulate(&self, public_key: &EncPublicKey) -> EncapsulationResult {
-        let (cp, sec) = self.inner.encapsulate(&public_key.inner, OsRng);
-        EncapsulationResult {
-            inner: cp,
-            key: sec,
-        }
+    pub fn encapsulate(&self, public_key: EncPublicKey, secret: SecretKey) -> String {
+        let inner = self
+            .inner
+            .encapsulate_choosen(&public_key.inner, secret.inner, OsRng);
+        as_base64(&inner)
     }
 
+    /// @throw if base64 is not valid or string has invalid length or decapsulation failed
     pub fn decapsulate(&self, ciphertext: &str) -> Result<SecretKey, JsValue> {
         self.inner
-            .decapsulate(&from_base64(ciphertext)?)
+            .decapsulate_choosen(&from_base64(ciphertext)?)
             .map(|inner| SecretKey { inner })
             .map_err(err_as_jsvalue)
     }
 
-    /// @throw if base64 is not valid of string has invalid length
+    /// @throw if base64 is not valid or string has invalid length
     pub fn from_base64(base64: &str) -> Result<EncKeypair, JsValue> {
         Ok(EncKeypair {
             inner: from_base64::<crypto::enc::Keypair>(base64)?.clone(),
         })
-    }
-}
-
-#[wasm_bindgen]
-pub struct EncapsulationResult {
-    inner: crypto::enc::Ciphertext,
-    key: crypto::SharedSecret,
-}
-
-#[wasm_bindgen]
-impl EncapsulationResult {
-    #[wasm_bindgen(getter)]
-    pub fn ciphertext(&self) -> String {
-        as_base64(&self.inner)
-    }
-
-    #[wasm_bindgen(getter)]
-    pub fn key(&self) -> SecretKey {
-        SecretKey { inner: self.key }
     }
 }
 
@@ -296,10 +277,16 @@ impl EncPublicKey {
         BASE64.encode(hash)
     }
 
-    pub fn verify_with_hash(&self, base64_hash: &str) -> bool {
-        let mut hash = [0u8; 32];
-        _ = BASE64.decode_slice(base64_hash, &mut hash);
-        crypto::hash::from_slice(self.inner.as_bytes()) == hash
+    /// @throw if base64 is not valid or string has invalid length
+    pub fn verify_with_hash(&self, base64_hash: &str) -> Result<bool, JsValue> {
+        let mut hash = [0u8; 33]; // because of a bug in base64 engine
+        let len = BASE64
+            .decode_slice(base64_hash, &mut hash)
+            .map_err(err_as_jsvalue)?;
+        if len != 32 {
+            return Err("Invalid hash length".into());
+        }
+        Ok(crypto::hash::from_slice(self.inner.as_bytes()) == hash[..32])
     }
 }
 

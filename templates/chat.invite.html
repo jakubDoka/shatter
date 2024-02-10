@@ -1,17 +1,27 @@
 {%- import "utils.html" as utils -%}
-<form preprocess="chat_invite" hx-post="./invite" hx-swap="outerHTML" hx-target="this" id="chat-invite-for">
+<form preprocess="chat_invite" hx-post="./invite" hx-swap="outerHTML" hx-target="this"
+	hx-vals='{"fetched_already": {{ fetched_already }}}' id="chat-invite-form"
+	hx-on:htmx:validation:validate="validate_chat_invite(this)">
 	{% call utils::form_errors(errors) %}
 	<div class="inline-form">
-		<input class="line-input p-1 flex-1" type="text" name="username" placeholder="username" maxlength="32"
-			required />
+		{% if fetched_already %}
+		<input class="line-input p-1 flex-1 focused" type="text" name="pk_hash"
+			placeholder="{{ username }}s pk hash" required />
 		<input class="button p-1" type="submit" value="invite" />
+		{% else %}
+		<input class="line-input p-1 flex-1 focused" type="text" name="username" placeholder="username"
+			maxlength="32" value="{{ username }}" required />
+		<input class="button p-1" type="submit" value="fetch user" />
+		{% endif %}
+
 		<button type="button" class="button p-1" hx-get="./nav" hx-swap="outerHTML"
-			hx-target="#chat-invite-for">
-			{% if user_key.is_none() %}fetch user{% else %}invite{% endif %}
+			hx-target="#chat-invite-form">
+			cancel
 		</button>
 
 		{% if user_key.is_some() %}
-		<div id="user-key" class="hidden">{{ user_key.as_ref().unwrap() }}</div>
+		<input name="user_key" class="hidden" value="{{ user_key.as_ref().unwrap() }}" />
+		<input name="username" class="hidden" value="{{ username }}" />
 		{% endif %}
 	</div>
 </form>

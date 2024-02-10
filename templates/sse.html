@@ -1,0 +1,5 @@
+<div hx-ext="sse" sse-connect="./events">
+	<div sse-swap="NewMessage" hx-swap="afterbegin" hx-target="#messages"></div>
+	<div sse-swap="MailCount" hx-swap="innerHTML" hx-target="#mail-counter"></div>
+	<div sse-swap="NewMail" hx-swap="afterbegin" hx-target="#mail"></div>
+</div>

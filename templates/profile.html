@@ -4,12 +4,13 @@
 <div class="bg-error"></div>
 <div class="bg-font"></div>
 
-{% if name_changed %}
+{% if name_changed && errors.is_empty() %}
 {% include "chat.nav.username.html" %}
 {% endif %}
 
-<form preprocess="profile" postprocess="profile;{{ username }}" hx-post="/profile" hx-swap="outerHTML" hx-target="this"
-	hx-on:htmx:validation:validate="validate_profile(this)">
+<form preprocess="profile" postprocess="profile;{{ username }};{{ !errors.is_empty() }}" hx-post="/profile"
+	hx-swap="outerHTML" hx-target="this" hx-on:htmx:validation:validate="validate_profile(this)"
+	class="normal-form">
 
 	{% call utils::form_errors(errors) %}
 
@@ -58,3 +59,4 @@
 		{% endif %}
 	</div>
 </form>
+{% include "sse.html" %}

@@ -1,5 +1,20 @@
-<div class="flex flex-col">
-	{% match payload %}
-	{% when MailPayload::ChatInvite with { chat, from, ciphertext } %}
-	{% endmatch %}
-</div>
+{% match payload %}
+{% when MailPayload::ChatInvite with { chat, from, ciphertext, role } %}
+<form preprocess="handle_invite" id="{{ id }}" hx-delete='/mail/{{ id }}/invite' hx-swap="outerHTML" hx-target="this"
+	class="flex flex-col bg-secondary pb-2">
+	<div class="ml-2">
+		<div class="opacity-50 ml-2 stamp text-sm mt-auto">{{ stamp }}</div>
+		<div class="">
+			<b>{{ from }}</b> invited you to chat <b>{{ chat }}</b> whith a role of <b>{{ role }}</b>
+		</div>
+		<div class="flex flex-row gap-2">
+			{% for choice in ["accept", "decline"] %}
+			<input class="bg-primary p-1 button" type="submit" name="{{ choice }}" value="{{ choice }}" />
+			{% endfor %}
+		</div>
+		<input class="hidden" type="text" name="ciphertext" value="{{ Base64(ciphertext.0) }}"
+			onclick="this.hidden = true" />
+		<input class="hidden" type="text" name="chat" value="{{ chat }}" />
+	</div>
+</form>
+{% endmatch %}

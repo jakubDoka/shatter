@@ -6,19 +6,19 @@ use std::sync::Arc;
 use axum::extract::DefaultBodyLimit;
 use dashmap::DashMap;
 use tokio::sync::broadcast::Sender;
-use tower_livereload::predicate;
 
 use crate::endpoints::register::Register;
-use crate::endpoints::{login, mail, profile, register};
+use crate::endpoints::{login, mail, profile, register, sse};
 
 use self::endpoints::chat::{self, Message};
 use self::endpoints::login::Login;
-use self::model::Chatname;
+use self::model::{Chatname, Username};
 
 mod endpoints;
 mod model;
 
-pub type PubSub = Arc<DashMap<Chatname, PubSubEntry>>;
+pub type ChatPubSub = Arc<DashMap<Chatname, PubSubEntry>>;
+pub type UserPubSub = Arc<DashMap<Username, tokio::sync::mpsc::Sender<model::Mail>>>;
 
 pub struct PubSubEntry {
     sender: Sender<Message>,
@@ -35,7 +35,8 @@ impl Default for PubSubEntry {
 struct State {
     db: model::Db,
     cookie_key: tower_cookies::Key,
-    message_pubsub: PubSub,
+    message_pubsub: ChatPubSub,
+    mail_pubsub: UserPubSub,
 }
 
 #[tokio::main]
@@ -44,13 +45,21 @@ async fn main() {
         .filter_level(log::LevelFilter::Info)
         .init();
 
-    use axum::routing::{get, post};
+    use axum::routing::{delete, get, post};
     use tower_http::services::ServeDir;
 
-    let db = model::connect("mongodb://localhost:27017", "db")
-        .await
-        .unwrap();
-    let cookie_key = tower_cookies::Key::derive_from(b"super secret key that has 32 bts");
+    let mongo_url = if cfg!(debug_assertions) {
+        "mongodb://localhost:27017".into()
+    } else {
+        std::env::var("MONGO_URL").expect("MONGO_URL env var")
+    };
+
+    let db = model::connect(&mongo_url, "db").await.unwrap();
+    let cookie_key = if cfg!(debug_assertions) {
+        tower_cookies::Key::derive_from(b"super secret key that has 32 bts")
+    } else {
+        tower_cookies::Key::generate()
+    };
 
     let router = axum::Router::new()
         .route("/", get(endpoints::index))
@@ -58,6 +67,7 @@ async fn main() {
         .route("/chat-list/content", get(chat::list_content))
         .route("/chat-list/create", get(def_handler::<chat::CreateForm>))
         .route("/chat-list/create", post(chat::create))
+        .route("/chat-list/events", get(sse::mail_count))
         .route(
             "/chat-list/create/back",
             get(def_handler::<chat::CreateButton>),
@@ -66,7 +76,7 @@ async fn main() {
         .route("/chat-room/:name/messages", get(chat::get_messages))
         .route("/chat-room/:name/messages", post(chat::send_message))
         .route("/chat-room/:name/content", get(chat::room_content))
-        .route("/chat-room/:name/new-messages", get(chat::new_messages_sse))
+        .route("/chat-room/:name/events", get(sse::chat))
         .route("/chat-room/:name/invite", get(mail::invite))
         .route("/chat-room/:name/invite", post(mail::send_invite))
         .route("/chat-room/:name/nav", get(chat::nav))
@@ -79,9 +89,12 @@ async fn main() {
         .route("/profile/:username/", get(profile::full))
         .route("/profile", post(profile::edit))
         .route("/profile/:username/content", get(profile::content))
-        .route("/main", get(mail::get_mail))
+        .route("/profile/:username/events", get(sse::mail_count))
+        .route("/mail", get(mail::get_mail))
         .route("/mail/", get(mail::full))
+        .route("/mail/:id/invite", delete(mail::handle_invite))
         .route("/mail/content", get(mail::content))
+        .route("/mail/events", get(sse::mail))
         .nest_service("/assets", ServeDir::new("assets"))
         .route("/vaults", post(endpoints::files::set_vault))
         .route("/vaults", get(endpoints::files::get_vault))
@@ -93,28 +106,33 @@ async fn main() {
             db,
             cookie_key,
             message_pubsub: Default::default(),
+            mail_pubsub: Default::default(),
         });
 
     #[cfg(feature = "tower-livereload")]
-    let router = router.layer(tower_livereload::LiveReloadLayer::new().request_predicate(OnlyRoot));
+    let router = {
+        #[derive(Clone, Copy)]
+        struct OnlyRoot;
 
-    let tcp = tokio::net::TcpListener::bind("0.0.0.0:42069")
-        .await
-        .unwrap();
+        impl tower_livereload::predicate::Predicate<axum::http::Request<axum::body::Body>> for OnlyRoot {
+            fn check(&mut self, req: &axum::http::Request<axum::body::Body>) -> bool {
+                req.uri().path().ends_with('/')
+            }
+        }
+
+        router.layer(tower_livereload::LiveReloadLayer::new().request_predicate(OnlyRoot))
+    };
+
+    let addr = if cfg!(debug_assertions) {
+        "0.0.0.0:42069".into()
+    } else {
+        std::env::var("ADDR").expect("ADDR env var")
+    };
+
+    let tcp = tokio::net::TcpListener::bind(addr).await.unwrap();
     axum::serve(tcp, router).await.unwrap();
 }
 
 async fn def_handler<T: Default>() -> T {
     T::default()
-}
-
-#[cfg(feature = "tower-livereload")]
-#[derive(Clone, Copy)]
-struct OnlyRoot;
-
-#[cfg(feature = "tower-livereload")]
-impl predicate::Predicate<axum::http::Request<axum::body::Body>> for OnlyRoot {
-    fn check(&mut self, req: &axum::http::Request<axum::body::Body>) -> bool {
-        req.uri().path().ends_with('/')
-    }
 }
