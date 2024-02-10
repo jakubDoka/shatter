@@ -1,1 +1,1 @@
-cargo watch -x run --ignore files
+cargo watch -x run --ignore files &
