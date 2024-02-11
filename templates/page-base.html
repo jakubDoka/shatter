@@ -1,16 +1,16 @@
 <!doctype html>
-<html class="h-screen overflow-y-hidden">
+<html>
 
 <head>
 	<meta charset="UTF-8">
-	<meta name="viewport" content="width=device-width, width=device-height, initial-scale=1.0">
+	<meta name="viewport" content="initial-scale=1.0">
 	<link href="/assets/style.min.css" rel="stylesheet">
-	<link rel="manifest" href="/assets/manifest.json">
+	<link rel="manifest" href="/manifest.json">
 	{% block style %}{% endblock %}
 	<title>Shatter</title>
 </head>
 
-<body class="bg-primary text-font flex flex-col p-2 h-full">
+<body class="bg-primary text-font flex flex-col p-2 absolute top-0 bottom-0 left-0 right-0">
 	<nav class="mb-2 p-2 bg-secondary flex justify-between flex-wrap">
 		<div id="pages" class="flex flex-wrap">
 			{% block pages %}{% endblock %}

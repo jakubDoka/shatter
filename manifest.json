@@ -1,0 +1,19 @@
+{
+  "name": "Shatter",
+  "background_color": "#000",
+  "description": "Fak",
+  "icons": [
+    {
+      "src": "assets/solid-color-image.png",
+      "type": "image/png",
+      "sizes": "512x512"
+    },
+    {
+      "src": "assets/solid-color-image-small.png",
+      "type": "image/png",
+      "sizes": "192x192"
+    }
+  ],
+  "start_url": "/",
+  "display": "standalone"
+}

@@ -6,6 +6,7 @@ use std::sync::Arc;
 use axum::extract::DefaultBodyLimit;
 use dashmap::DashMap;
 use tokio::sync::broadcast::Sender;
+use tower_http::services::ServeFile;
 
 use crate::endpoints::register::Register;
 use crate::endpoints::{login, mail, profile, register, sse};
@@ -96,6 +97,7 @@ async fn main() {
         .route("/mail/content", get(mail::content))
         .route("/mail/events", get(sse::mail))
         .nest_service("/assets", ServeDir::new("assets"))
+        .nest_service("/manifest.json", ServeFile::new("manifest.json"))
         .route("/vaults", post(endpoints::files::set_vault))
         .route("/vaults", get(endpoints::files::get_vault))
         .route("/avatars", post(endpoints::files::set_avatar))
