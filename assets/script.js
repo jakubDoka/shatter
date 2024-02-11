@@ -2,6 +2,7 @@
 
 import __wbg_init, { EncPublicKey, SecretKey, UserSecrets, Vault, hash_password } from './ft-crypto/ft_crypto.js';
 
+navigator.serviceWorker.register('/assets/service-worker.js', { type: 'module' });
 
 /**
  * @param {HTMLInputElement} elem
@@ -163,7 +164,9 @@ window.logout = function() {
  * @param {KeyboardEvent} event
  */
 window.filter_enter = function(event) {
-  if (event.key === 'Enter' && !event.ctrlKey && !event.shiftKey) event.preventDefault();
+  if (event.key !== 'Enter' || event.ctrlKey || event.shiftKey) return;
+  htmx.trigger("#send-prompt", "submit");
+  event.preventDefault();
 }
 
 /** @type {{ username: string, password: string, secs: UserSecrets } | undefined} */

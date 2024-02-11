@@ -1,6 +1,6 @@
 {%- import "utils.html" as utils -%}
-<form preprocess="send_message" hx-post="./messages" hx-vals='{"name": "{{ name }}"}' hx-swap="outerHTML"
-	hx-target="this" class="flex" hx-trigger="keyup[key=='Enter'&&!shiftKey] from:#message">
+<form preprocess="send_message" id="send-prompt" hx-post="./messages" hx-vals='{"name": "{{ name }}"}'
+	hx-swap="outerHTML" hx-target="this" class="flex">
 	{% call utils::form_errors(errors) %}
 	<div class="inline-form">
 		<textarea id="message" name="content" rows="1" class="bg-primary flex-1 outline-none p-1 resize-none"
